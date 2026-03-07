@@ -8,38 +8,17 @@
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
             max-width: 900px; 
-            margin: 40px auto; 
+            margin: 20px auto; 
             padding: 0 20px;
             color: #333;
-        }
-        .header { border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px; }
-        
-        textarea { 
-            width: 100%; 
-            height: 450px; 
-            font-family: 'Courier New', Courier, monospace; 
-            font-size: 1.3rem;
-            padding: 15px;
-            border: 2px solid #222;
-            border-radius: 4px;
-            box-sizing: border-box;
-            background-color: #fdfdfd;
-            line-height: 1.5;
-        }
-
-        .status-bar {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #f0f0f0;
-            padding: 10px 15px;
-            margin-top: -2px;
-            border: 2px solid #222;
-            border-top: none;
-            font-weight: bold;
+            flex-direction: column;
+            min-height: 95vh;
         }
-
-        .controls { margin-top: 20px; display: flex; gap: 10px; }
+        
+        .header { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        
+        .controls { margin: 20px 0; display: flex; gap: 10px; }
         
         button {
             padding: 12px 24px;
@@ -51,14 +30,37 @@
         }
 
         .btn-download { background-color: #2e7d32; color: white; }
-        .btn-download:hover { background-color: #1b5e20; }
-        
         .btn-clear { background-color: #d32f2f; color: white; }
-        .btn-clear:hover { background-color: #b71c1c; }
+
+        /* The Status Bar is now above the editor for better visibility */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f0f0f0;
+            padding: 10px 15px;
+            border: 2px solid #222;
+            border-bottom: none;
+            font-weight: bold;
+            margin-top: auto; /* Pushes the editor group to the bottom */
+        }
+
+        textarea { 
+            width: 100%; 
+            height: 400px; 
+            font-family: 'Courier New', Courier, monospace; 
+            font-size: 1.3rem;
+            padding: 15px;
+            border: 2px solid #222;
+            border-radius: 0 0 4px 4px;
+            box-sizing: border-box;
+            background-color: #fdfdfd;
+            line-height: 1.5;
+            margin-bottom: 20px; /* Buffer at the very bottom of the page */
+        }
 
         .warning { color: #d32f2f; visibility: hidden; }
-        
-        .instructions { font-size: 0.9rem; color: #666; margin-bottom: 20px; }
+        .instructions { font-size: 0.9rem; color: #666; }
     </style>
 </head>
 <body>
@@ -66,89 +68,74 @@
     <div class="header">
         <h1>BRF Document Editor</h1>
         <p class="instructions">
-            Type in Computer Braille (ASCII). Use <strong>Ê (Dots 1-2-6)</strong> to start a new line. 
-            Standard lines should not exceed 40 characters.
+            Type in Computer Braille (ASCII). <br>
+            <strong>Ê (Dots 1-2-6)</strong> = New Line. <br>
+            Limit lines to 40 characters for your client's display.
         </p>
     </div>
 
-    <textarea id="editor" spellcheck="false" placeholder="Start typing..."></textarea>
-    
+    <div class="controls">
+        <button class="btn-download" onclick="downloadBRF()">Download .brf</button>
+        <button class="btn-clear" onclick="clearEditor()">Clear Editor</button>
+    </div>
+
     <div class="status-bar">
         <div id="counter">Line Length: 0</div>
         <div id="limit-msg" class="warning">⚠️ LINE EXCEEDS 40 CHARACTERS</div>
     </div>
 
-    <div class="controls">
-        <button class="btn-download" onclick="downloadBRF()">Download .brf File</button>
-        <button class="btn-clear" onclick="clearEditor()">Clear Editor</button>
-    </div>
+    <textarea id="editor" spellcheck="false" placeholder="Your cursor is now at the bottom of the page. Start typing..."></textarea>
 
     <script>
         const editor = document.getElementById('editor');
         const counter = document.getElementById('counter');
         const warning = document.getElementById('limit-msg');
 
-        // 1. Monitor typing for the 'Ê' (Dots 1-2-6) trigger
+        // Logic for Ê (Dots 1-2-6) as New Line
         editor.addEventListener('input', function() {
             if (this.value.includes('Ê')) {
                 const start = this.selectionStart;
-                const end = this.selectionEnd;
-
-                // Replace 'Ê' with a real newline
                 this.value = this.value.replace(/Ê/g, '\n');
-
-                // Keep cursor at the new position
                 this.selectionStart = this.selectionEnd = start;
             }
             updateUI();
         });
 
-        // 2. Handle the visual line counter
         function updateUI() {
             const lines = editor.value.split('\n');
             const currentLine = lines[lines.length - 1];
             const length = currentLine.length;
             
             counter.innerText = `Line Length: ${length}`;
-            
-            if (length > 40) {
-                warning.style.visibility = 'visible';
-            } else {
-                warning.style.visibility = 'hidden';
-            }
+            warning.style.visibility = (length > 40) ? 'visible' : 'hidden';
         }
 
-        // 3. Download the BRF file
         function downloadBRF() {
             const content = editor.value;
-            if (!content) {
-                alert("The editor is empty!");
-                return;
-            }
+            if (!content) return alert("Editor is empty!");
 
-            // Ensure Windows-style line endings (\r\n) for hardware compatibility
+            // Convert to Windows-style line endings for device compatibility
             const brfReadyText = content.replace(/\n/g, '\r\n');
             
             const blob = new Blob([brfReadyText], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
-            
             const a = document.createElement('a');
             a.href = url;
-            a.download = "braille_document.brf";
-            document.body.appendChild(a);
+            a.download = "client_braille.brf";
             a.click();
-            
-            // Clean up
-            document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
 
         function clearEditor() {
-            if (confirm("Are you sure you want to clear the editor?")) {
+            if (confirm("Clear all text?")) {
                 editor.value = '';
                 updateUI();
+                editor.focus();
             }
         }
+
+        // Auto-focus on the editor when the page loads
+        window.onload = () => editor.focus();
     </script>
 </body>
 </html>

@@ -2,24 +2,43 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BRF Editor - Solution 3 (JS Auto-Wrap)</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; display: flex; flex-direction: column; height: 90vh; }
-        textarea { flex-grow: 1; width: 100%; font-family: 'Courier New', monospace; font-size: 1.25rem; padding: 15px; border: 1px solid #333; line-height: 1.4; }
-        .status-bar { background: #eee; padding: 10px; border: 1px solid #333; border-bottom: none; font-weight: bold; }
+        .controls { margin: 15px 0; }
+        button { padding: 12px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; border: 1px solid #333; }
+        .btn-download { background-color: #2e7d32; color: white; }
+        
+        /* Full width visually, but JS handles the limit */
+        textarea { 
+            flex-grow: 1; 
+            width: 100%; 
+            font-family: 'Courier New', monospace; 
+            font-size: 1.25rem;
+            padding: 15px;
+            border: 1px solid #333;
+            line-height: 1.4;
+        }
+
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
     </style>
 </head>
 <body>
-    <h2>Braille Editor (JS Auto-Wrap)</h2>
-    <div class="status-bar" id="counter">Current Line: 0/40</div>
-    <textarea id="editor" spellcheck="false" placeholder="Type past 40 to see auto-wrap..."></textarea>
+
+    <h2>Braille Editor (Auto-Wrap)</h2>
+    <div class="controls">
+        <button class="btn-download" onclick="downloadBRF()">Download .brf</button>
+    </div>
+
+    <label for="editor" class="sr-only">Braille Editor, automatic 40 cell wrap</label>
+    <textarea id="editor" aria-label="Braille Editor, automatic 40 cell wrap" spellcheck="false"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
-        const counter = document.getElementById('counter');
 
-        editor.addEventListener('input', function(e) {
-            // Handle your manual newline shortcut
+        editor.addEventListener('input', function() {
+            // Manual break shortcut
             if (this.value.includes('Ê')) {
                 this.value = this.value.replace(/Ê/g, '\n');
             }
@@ -33,7 +52,7 @@
                     const extra = lines[i].substring(40);
                     lines[i] = lines[i].substring(0, 40);
                     lines.splice(i + 1, 0, extra);
-                    cursorPosition++; // Adjust cursor for the new newline
+                    cursorPosition++; // Move cursor to account for the new newline
                     modified = true;
                 }
             }
@@ -42,11 +61,19 @@
                 this.value = lines.join('\n');
                 this.selectionStart = this.selectionEnd = cursorPosition;
             }
-
-            // Update display counter for the current line
-            const currentLine = this.value.substring(0, this.selectionStart).split('\n').length - 1;
-            counter.innerText = `Current Line Length: ${lines[currentLine].length}/40`;
         });
+
+        function downloadBRF() {
+            if (!editor.value) return;
+            const blob = new Blob([editor.value.replace(/\n/g, '\r\n')], { type: 'text/plain' });
+            const a = Object.assign(document.createElement('a'), { 
+                href: URL.createObjectURL(blob), 
+                download: "client_file.brf" 
+            });
+            a.click();
+        }
+
+        window.onload = () => editor.focus();
     </script>
 </body>
 </html>

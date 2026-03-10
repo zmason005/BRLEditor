@@ -1,52 +1,64 @@
-<div id="aria-announcer" 
-     aria-live="polite" 
-     aria-atomic="true"
-     style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0);">
-</div>
-
-<script>
-    const editor = document.getElementById('editor');
-    const announcer = document.getElementById('aria-announcer');
-    
-    // This variable acts as the "gatekeeper"
-    let lastLineNumber = -1; 
-
-    function handleNavigation() {
-        const text = editor.value;
-        const cursorSelection = editor.selectionStart;
-        const lines = text.split('\n');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Braille Editor</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 20px auto; display: flex; flex-direction: column; height: 95vh; }
         
-        // Calculate the current line index (0-based)
-        let currentLineIndex = text.substring(0, cursorSelection).split('\n').length - 1;
-        
-        // ONLY trigger if the line index is DIFFERENT than the last time we checked
-        if (currentLineIndex !== lastLineNumber) {
-            const lineLength = lines[currentLineIndex].length;
-            const displayLineNumber = currentLineIndex + 1;
+        /* Solution 1: Visual 40-cell width */
+        textarea { 
+            flex-grow: 1; 
+            width: 40ch; 
+            font-family: 'Courier New', monospace; 
+            font-size: 1.25rem;
+            padding: 15px;
+            line-height: 1.4;
+            white-space: pre; /* Keeps spaces and prevents auto-wrap */
+            overflow-x: auto;
+            resize: none;
+        }
 
-            // Trigger the verbal announcement
-            announcer.textContent = `Line ${displayLineNumber}, ${lineLength} characters`;
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    </style>
+</head>
+<body>
+
+    <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <textarea id="editor" aria-label="Braille Editor" spellcheck="false"></textarea>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const announcer = document.getElementById('aria-announcer');
+        let lastLineNumber = -1; 
+
+        function handleNavigation() {
+            const text = editor.value;
+            const pos = editor.selectionStart;
+            const lines = text.split('\n');
+            let currentLineIndex = text.substring(0, pos).split('\n').length - 1;
             
-            // Update the gatekeeper so it knows we've already announced this line
-            lastLineNumber = currentLineIndex;
+            if (currentLineIndex !== lastLineNumber) {
+                const lineLength = lines[currentLineIndex].length;
+                announcer.textContent = `Line ${currentLineIndex + 1}, ${lineLength} characters`;
+                lastLineNumber = currentLineIndex;
+            }
         }
-    }
 
-    // selectionchange covers all navigation (Arrows, Home/End, PageUp/Down, Clicks)
-    document.addEventListener('selectionchange', () => {
-        if (document.activeElement === editor) {
-            handleNavigation();
-        }
-    });
+        document.addEventListener('selectionchange', () => {
+            if (document.activeElement === editor) handleNavigation();
+        });
 
-    // Handle your manual newline shortcut
-    editor.addEventListener('input', function() {
-        if (this.value.includes('Ê')) {
-            const start = this.selectionStart;
-            this.value = this.value.replace(/Ê/g, '\n');
-            this.selectionStart = this.selectionEnd = start;
-        }
-    });
+        editor.addEventListener('input', function() {
+            if (this.value.includes('Ê')) {
+                const start = this.selectionStart;
+                this.value = this.value.replace(/Ê/g, '\n');
+                this.selectionStart = this.selectionEnd = start;
+            }
+        });
 
-    // ... (rest of your download and clear functions)
-</script>
+        window.onload = () => editor.focus();
+    </script>
+</body>
+</html>

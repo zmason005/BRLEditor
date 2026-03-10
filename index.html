@@ -1,82 +1,52 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRF Editor - Solution 1 (CSS)</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; display: flex; flex-direction: column; height: 90vh; }
-        .top-section { flex-shrink: 0; }
-        .controls { margin: 15px 0; }
+<div id="aria-announcer" 
+     aria-live="polite" 
+     aria-atomic="true"
+     style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0);">
+</div>
+
+<script>
+    const editor = document.getElementById('editor');
+    const announcer = document.getElementById('aria-announcer');
+    
+    // This variable acts as the "gatekeeper"
+    let lastLineNumber = -1; 
+
+    function handleNavigation() {
+        const text = editor.value;
+        const cursorSelection = editor.selectionStart;
+        const lines = text.split('\n');
         
-        button { padding: 12px 20px; font-weight: bold; cursor: pointer; margin-right: 10px; border-radius: 4px; border: 1px solid #333; }
-        .btn-download { background-color: #2e7d32; color: white; }
+        // Calculate the current line index (0-based)
+        let currentLineIndex = text.substring(0, cursorSelection).split('\n').length - 1;
+        
+        // ONLY trigger if the line index is DIFFERENT than the last time we checked
+        if (currentLineIndex !== lastLineNumber) {
+            const lineLength = lines[currentLineIndex].length;
+            const displayLineNumber = currentLineIndex + 1;
 
-        /* Visually hide label but keep for screen readers */
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            border: 0;
+            // Trigger the verbal announcement
+            announcer.textContent = `Line ${displayLineNumber}, ${lineLength} characters`;
+            
+            // Update the gatekeeper so it knows we've already announced this line
+            lastLineNumber = currentLineIndex;
         }
+    }
 
-        /* 40-cell enforcement via CSS */
-        textarea { 
-            flex-grow: 1; 
-            width: 40ch; /* Exactly 40 characters wide */
-            font-family: 'Courier New', monospace; 
-            font-size: 1.25rem;
-            padding: 15px;
-            border: 2px solid #333;
-            line-height: 1.4;
-            white-space: pre-wrap;
-            word-break: break-all;
-            overflow-x: hidden;
-            resize: none; 
+    // selectionchange covers all navigation (Arrows, Home/End, PageUp/Down, Clicks)
+    document.addEventListener('selectionchange', () => {
+        if (document.activeElement === editor) {
+            handleNavigation();
         }
-    </style>
-</head>
-<body>
+    });
 
-    <div class="top-section">
-        <h2>Client BRF Editor</h2>
-        <p>Type in ASCII. Use <strong>Ê</strong> for a new line.</p>
-    </div>
-
-    <div class="controls">
-        <button class="btn-download" onclick="downloadBRF()">Download .brf</button>
-    </div>
-
-    <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
-    <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false"></textarea>
-
-    <script>
-        const editor = document.getElementById('editor');
-
-        editor.addEventListener('input', function() {
-            if (this.value.includes('Ê')) {
-                const start = this.selectionStart;
-                this.value = this.value.replace(/Ê/g, '\n');
-                this.selectionStart = this.selectionEnd = start;
-            }
-        });
-
-        function downloadBRF() {
-            if (!editor.value) return;
-            const blob = new Blob([editor.value.replace(/\n/g, '\r\n')], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = "client_file.brf";
-            a.click();
-            URL.revokeObjectURL(url);
+    // Handle your manual newline shortcut
+    editor.addEventListener('input', function() {
+        if (this.value.includes('Ê')) {
+            const start = this.selectionStart;
+            this.value = this.value.replace(/Ê/g, '\n');
+            this.selectionStart = this.selectionEnd = start;
         }
+    });
 
-        window.onload = () => editor.focus();
-    </script>
-</body>
-</html>
+    // ... (rest of your download and clear functions)
+</script>

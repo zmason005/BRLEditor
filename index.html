@@ -2,36 +2,91 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Braille Editor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Braille BRF Editor - Clipboard Mode</title>
     <style>
-        body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 20px auto; display: flex; flex-direction: column; height: 95vh; }
+        body { 
+            font-family: -apple-system, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+        }
         
-        /* Solution 1: Visual 40-cell width */
+        .top-section { flex-shrink: 0; }
+        .controls { margin: 15px 0; }
+        
+        button {
+            padding: 12px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 10px;
+            border-radius: 4px;
+            border: 1px solid #333;
+        }
+
+        .btn-copy { background-color: #0056b3; color: white; }
+        .btn-clear { background-color: #f5f5f5; color: #333; }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
         textarea { 
             flex-grow: 1; 
             width: 40ch; 
             font-family: 'Courier New', monospace; 
             font-size: 1.25rem;
             padding: 15px;
+            border: 2px solid #333;
+            box-sizing: border-box;
             line-height: 1.4;
-            white-space: pre; /* Keeps spaces and prevents auto-wrap */
+            white-space: pre;
             overflow-x: auto;
             resize: none;
         }
-
-        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
     </style>
 </head>
 <body>
 
+    <div class="top-section">
+        <h2>Client BRF Editor</h2>
+        <p>Text persists automatically. Use <strong>Ê</strong> for a new line.</p>
+    </div>
+
+    <div class="controls">
+        <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
+    </div>
+
     <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-    <textarea id="editor" aria-label="Braille Editor" spellcheck="false"></textarea>
+    <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
+    
+    <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
         const announcer = document.getElementById('aria-announcer');
         let lastLineNumber = -1; 
+
+        window.onload = () => {
+            const savedText = localStorage.getItem('braille_editor_v1');
+            if (savedText) {
+                editor.value = savedText;
+                editor.selectionStart = editor.selectionEnd = editor.value.length;
+            }
+            editor.focus();
+        };
 
         function handleNavigation() {
             const text = editor.value;
@@ -40,7 +95,7 @@
             let currentLineIndex = text.substring(0, pos).split('\n').length - 1;
             
             if (currentLineIndex !== lastLineNumber) {
-                const lineLength = lines[currentLineIndex].length;
+                const lineLength = (lines[currentLineIndex] || "").length;
                 announcer.textContent = `Line ${currentLineIndex + 1}, ${lineLength} characters`;
                 lastLineNumber = currentLineIndex;
             }
@@ -56,9 +111,28 @@
                 this.value = this.value.replace(/Ê/g, '\n');
                 this.selectionStart = this.selectionEnd = start;
             }
+            localStorage.setItem('braille_editor_v1', this.value);
         });
 
-        window.onload = () => editor.focus();
+        async function copyToClipboard() {
+            if (!editor.value) return;
+            try {
+                // We keep standard \n for clipboard as most modern apps prefer it
+                await navigator.clipboard.writeText(editor.value);
+                announcer.textContent = "All text copied to clipboard";
+            } catch (err) {
+                announcer.textContent = "Failed to copy text";
+            }
+        }
+
+        function clearEditor() {
+            if (confirm("Delete saved progress and clear document?")) {
+                editor.value = '';
+                localStorage.removeItem('braille_editor_v1');
+                announcer.textContent = "Document cleared";
+                editor.focus();
+            }
+        }
     </script>
 </body>
 </html>

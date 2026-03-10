@@ -3,74 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRF Editor - Solution 3 (JS Auto-Wrap)</title>
+    <title>BRF Editor - Solution 1 (CSS)</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; display: flex; flex-direction: column; height: 90vh; }
+        .top-section { flex-shrink: 0; }
         .controls { margin: 15px 0; }
-        button { padding: 12px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; border: 1px solid #333; }
-        .btn-download { background-color: #2e7d32; color: white; }
         
-        /* Full width visually, but JS handles the limit */
+        button { padding: 12px 20px; font-weight: bold; cursor: pointer; margin-right: 10px; border-radius: 4px; border: 1px solid #333; }
+        .btn-download { background-color: #2e7d32; color: white; }
+
+        /* Visually hide label but keep for screen readers */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        /* 40-cell enforcement via CSS */
         textarea { 
             flex-grow: 1; 
-            width: 100%; 
+            width: 40ch; /* Exactly 40 characters wide */
             font-family: 'Courier New', monospace; 
             font-size: 1.25rem;
             padding: 15px;
-            border: 1px solid #333;
+            border: 2px solid #333;
             line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-all;
+            overflow-x: hidden;
+            resize: none; 
         }
-
-        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
     </style>
 </head>
 <body>
 
-    <h2>Braille Editor (Auto-Wrap)</h2>
+    <div class="top-section">
+        <h2>Client BRF Editor</h2>
+        <p>Type in ASCII. Use <strong>Ê</strong> for a new line.</p>
+    </div>
+
     <div class="controls">
         <button class="btn-download" onclick="downloadBRF()">Download .brf</button>
     </div>
 
-    <label for="editor" class="sr-only">Braille Editor, automatic 40 cell wrap</label>
-    <textarea id="editor" aria-label="Braille Editor, automatic 40 cell wrap" spellcheck="false"></textarea>
+    <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
+    <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
 
         editor.addEventListener('input', function() {
-            // Manual break shortcut
             if (this.value.includes('Ê')) {
+                const start = this.selectionStart;
                 this.value = this.value.replace(/Ê/g, '\n');
-            }
-
-            let lines = this.value.split('\n');
-            let cursorPosition = this.selectionStart;
-            let modified = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].length > 40) {
-                    const extra = lines[i].substring(40);
-                    lines[i] = lines[i].substring(0, 40);
-                    lines.splice(i + 1, 0, extra);
-                    cursorPosition++; // Move cursor to account for the new newline
-                    modified = true;
-                }
-            }
-
-            if (modified) {
-                this.value = lines.join('\n');
-                this.selectionStart = this.selectionEnd = cursorPosition;
+                this.selectionStart = this.selectionEnd = start;
             }
         });
 
         function downloadBRF() {
             if (!editor.value) return;
             const blob = new Blob([editor.value.replace(/\n/g, '\r\n')], { type: 'text/plain' });
-            const a = Object.assign(document.createElement('a'), { 
-                href: URL.createObjectURL(blob), 
-                download: "client_file.brf" 
-            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "client_file.brf";
             a.click();
+            URL.revokeObjectURL(url);
         }
 
         window.onload = () => editor.focus();

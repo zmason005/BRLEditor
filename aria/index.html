@@ -1,1 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Braille BRF Editor - ARIA Mode</title>
+    <style>
+        body { 
+            font-family: -apple-system, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+        }
+        
+        .top-section { flex-shrink: 0; }
+        .controls { margin: 15px 0; }
+        
+        button {
+            padding: 12px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 10px;
+            border-radius: 4px;
+            border: 1px solid #333;
+        }
+
+        .btn-copy { background-color: #0056b3; color: white; }
+        .btn-clear { background-color: #f5f5f5; color: #333; }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        textarea { 
+            flex-grow: 1; 
+            width: 100%; 
+            max-width: 40ch;
+            font-family: 'Courier New', monospace; 
+            font-size: 1.25rem;
+            padding: 15px;
+            border: 2px solid #333;
+            box-sizing: border-box;
+            line-height: 1.4;
+            white-space: pre;
+            overflow-x: auto;
+            resize: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="top-section">
+        <h2>Braille Editor (ARIA Mode)</h2>
+        <p>Speech focused on line/char count. Braille display support active.</p>
+    </div>
+
+    <div class="controls">
+        <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
+    </div>
+
+    <div id="aria-announcer" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+    <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
+    
+    <textarea 
+        id="editor" 
+        role="application" 
+        aria-roledescription="Braille Editor"
+        aria-label="Braille Editor, 40 cells per line" 
+        spellcheck="false"></textarea>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const announcer = document.getElementById('aria-announcer');
+        let lastLineNumber = -1; 
+
+        window.onload = () => {
+            const savedText = localStorage.getItem('braille_editor_v1');
+            if (savedText) {
+                editor.value = savedText;
+                editor.selectionStart = editor.selectionEnd = editor.value.length;
+            }
+            editor.focus();
+        };
+
+        // Custom focus/blur announcements
+        editor.addEventListener('focus', () => {
+            announcer.textContent = "Entering editor";
+            // Delay navigation check so focus announcement finishes
+            setTimeout(handleNavigation, 500);
+        });
+
+        editor.addEventListener('blur', () => {
+            announcer.textContent = "Exiting editor";
+        });
+
+        function handleNavigation() {
+            const text = editor.value;
+            const pos = editor.selectionStart;
+            const lines = text.split('\n');
+            let currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+            
+            // Only announce if the line has actually changed to keep it clean
+            if (currentLineIndex !== lastLineNumber) {
+                const lineLength = (lines[currentLineIndex] || "").length;
+                announcer.textContent = `Line ${currentLineIndex + 1}, ${lineLength} characters`;
+                lastLineNumber = currentLineIndex;
+            }
+        }
+
+        document.addEventListener('selectionchange', () => {
+            if (document.activeElement === editor) handleNavigation();
+        });
+
+        editor.addEventListener('input', function() {
+            // Logic for 'Ê' as Enter key
+            if (this.value.includes('Ê')) {
+                const start = this.selectionStart;
+                this.value = this.value.replace(/Ê/g, '\n');
+                this.selectionStart = this.selectionEnd = start;
+            }
+            localStorage.setItem('braille_editor_v1', this.value);
+        });
+
+        async function copyToClipboard() {
+            if (!editor.value) return;
+            try {
+                await navigator.clipboard.writeText(editor.value);
+                announcer.textContent = "All text copied to clipboard";
+            } catch (err) {
+                announcer.textContent = "Failed to copy text";
+            }
+        }
+
+        function clearEditor() {
+            if (confirm("Delete saved progress and clear document?")) {
+                editor.value = '';
+                localStorage.removeItem('braille_editor_v1');
+                announcer.textContent = "Document cleared";
+                editor.focus();
+            }
+        }
+    </script>
+</body>
+</html>
 

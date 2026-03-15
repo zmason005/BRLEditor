@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Braille BRF Editor - Clipboard Mode</title>
+    <title>Braille BRF Editor - Standard Mode</title>
     <style>
         body { 
             font-family: -apple-system, sans-serif; 
@@ -29,6 +29,7 @@
 
         .btn-copy { background-color: #0056b3; color: white; }
         .btn-clear { background-color: #f5f5f5; color: #333; }
+        .btn-format { background-color: #28a745; color: white; border-color: #1e7e34; }
 
         .sr-only {
             position: absolute;
@@ -43,7 +44,8 @@
 
         textarea { 
             flex-grow: 1; 
-            width: 40ch; 
+            width: 100%;
+            max-width: 40ch; 
             font-family: 'Courier New', monospace; 
             font-size: 1.25rem;
             padding: 15px;
@@ -60,11 +62,12 @@
 
     <div class="top-section">
         <h2>Client BRF Editor</h2>
-        <p>Text persists automatically. Use <strong>Ê</strong> for a new line.</p>
+        <p>Type your draft, then use <strong>Format for BRF</strong> to add page numbers and line breaks.</p>
     </div>
 
     <div class="controls">
         <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button class="btn-format" onclick="formatForBRF()">Format for BRF</button>
         <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
     </div>
 
@@ -87,6 +90,57 @@
             }
             editor.focus();
         };
+
+        // Helper to convert number to Braille ASCII (# + a-j)
+        function toBrailleNumber(num) {
+            const map = { '1':'a', '2':'b', '3':'c', '4':'d', '5':'e', '6':'f', '7':'g', '8':'h', '9':'i', '0':'j' };
+            const digits = num.toString().split('').map(d => map[d]).join('');
+            return '#' + digits;
+        }
+
+        function formatForBRF() {
+            // 1. Strip existing BRF formatting to get raw text
+            let rawText = editor.value
+                .replace(/ {3,}#[a-j]+/g, '') // Remove existing page numbers
+                .replace(/\n/g, ' ')          // Flatten to single stream
+                .replace(/\s+/g, ' ')         // Collapse multiple spaces
+                .trim();
+
+            if (!rawText) return;
+
+            const words = rawText.split(' ');
+            let lines = [];
+            let currentLine = "";
+            let pageCount = 1;
+
+            words.forEach((word) => {
+                let isPageEnd = (lines.length + 1) % 25 === 0;
+                let pNum = isPageEnd ? toBrailleNumber(pageCount) : "";
+                // Requirement: 3 blank cells + page number
+                let limit = isPageEnd ? (40 - (pNum.length + 3)) : 40;
+
+                // Word wrap logic
+                if ((currentLine + (currentLine ? " " : "") + word).length <= limit) {
+                    currentLine += (currentLine === "" ? "" : " ") + word;
+                } else {
+                    if (isPageEnd) {
+                        const spacesNeeded = 40 - currentLine.length - pNum.length;
+                        lines.push(currentLine + " ".repeat(spacesNeeded) + pNum);
+                        pageCount++;
+                    } else {
+                        lines.push(currentLine);
+                    }
+                    currentLine = word;
+                }
+            });
+
+            // Handle the final line of the document
+            lines.push(currentLine);
+
+            editor.value = lines.join('\n');
+            announcer.textContent = `Document formatted for BRF. ${pageCount} pages total.`;
+            editor.focus();
+        }
 
         function handleNavigation() {
             const text = editor.value;
@@ -117,7 +171,6 @@
         async function copyToClipboard() {
             if (!editor.value) return;
             try {
-                // We keep standard \n for clipboard as most modern apps prefer it
                 await navigator.clipboard.writeText(editor.value);
                 announcer.textContent = "All text copied to clipboard";
             } catch (err) {

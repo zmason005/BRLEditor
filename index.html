@@ -102,10 +102,14 @@
             const wrapped = [];
             for (let line of lines) {
                 while (line.length > 40) {
-                    let breakAt = line.lastIndexOf(' ', 40);
-                    if (breakAt <= 0) breakAt = 40;
-                    wrapped.push(line.substring(0, breakAt));
-                    line = line.substring(breakAt === 40 ? 40 : breakAt + 1);
+                    let breakAt = line.lastIndexOf(' ', 39);
+                    if (breakAt <= 0) {
+                        wrapped.push(line.substring(0, 40));
+                        line = line.substring(40);
+                    } else {
+                        wrapped.push(line.substring(0, breakAt));
+                        line = line.substring(breakAt).replace(/^ +/, '');
+                    }
                 }
                 wrapped.push(line);
             }
@@ -190,8 +194,6 @@
             if (wrapped !== before) {
                 const cursor = this.selectionStart;
                 this.value = wrapped;
-                // Count how many \n characters were added before the cursor position
-                // and adjust the cursor forward by that amount
                 const addedNewlines = (wrapped.substring(0, cursor + 5).split('\n').length) -
                                       (before.substring(0, cursor + 5).split('\n').length);
                 this.selectionStart = this.selectionEnd = cursor + addedNewlines;

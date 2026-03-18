@@ -71,10 +71,6 @@
         <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
     </div>
 
-    <!-- General announcer: used for copy, format, clear. Shows on braille display. -->
-    <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-
-    <!-- Navigation announcer: used for line announcements. Speech only — braille suppressed via aria-hidden toggle. -->
     <div id="nav-announcer" class="sr-only" aria-live="assertive" aria-atomic="true" aria-hidden="true"></div>
 
     <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
@@ -83,7 +79,6 @@
 
     <script>
         const editor = document.getElementById('editor');
-        const announcer = document.getElementById('aria-announcer');
         const navAnnouncer = document.getElementById('nav-announcer');
         let lastLineIndex = -1;
 
@@ -126,8 +121,6 @@
             const charCount = (lines[lineIndex] || "").length;
             const message = `Line ${lineNumber}, ${charCount} characters`;
 
-            // Unhide the nav announcer, set the message, then hide it again
-            // after a short delay to suppress braille display output
             navAnnouncer.removeAttribute('aria-hidden');
             navAnnouncer.textContent = '';
             requestAnimationFrame(() => {
@@ -195,7 +188,6 @@
             });
 
             editor.value = finalLines.join('\n');
-            announcer.textContent = `Formatted: ${pageCount} pages.`;
             localStorage.setItem('braille_editor_v1', editor.value);
             editor.focus();
         }
@@ -227,9 +219,8 @@
             if (!editor.value) return;
             try {
                 await navigator.clipboard.writeText(editor.value);
-                announcer.textContent = "Text copied to clipboard.";
             } catch (err) {
-                announcer.textContent = "Copy failed.";
+                // silent fail
             }
         }
 
@@ -237,7 +228,6 @@
             if (confirm("Delete saved progress and clear document?")) {
                 editor.value = '';
                 localStorage.removeItem('braille_editor_v1');
-                announcer.textContent = "Document cleared.";
                 editor.focus();
             }
         }

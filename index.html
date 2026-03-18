@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -81,7 +80,7 @@
     <script>
         const editor = document.getElementById('editor');
         const announcer = document.getElementById('aria-announcer');
-        let lastLineNumber = -1; 
+        let lastLineNumber = -1;
 
         window.onload = () => {
             const savedText = localStorage.getItem('braille_editor_v1');
@@ -98,6 +97,21 @@
             return '#' + digits;
         }
 
+        function applyWordWrap(text) {
+            const lines = text.split('\n');
+            const wrapped = [];
+            for (let line of lines) {
+                while (line.length > 40) {
+                    let breakAt = line.lastIndexOf(' ', 40);
+                    if (breakAt <= 0) breakAt = 40;
+                    wrapped.push(line.substring(0, breakAt));
+                    line = line.substring(breakAt === 40 ? 40 : breakAt + 1);
+                }
+                wrapped.push(line);
+            }
+            return wrapped.join('\n');
+        }
+
         function formatForBRF() {
             let inputLines = editor.value.split('\n');
             let finalLines = [];
@@ -110,7 +124,6 @@
                     let isPageEnd = (finalLines.length + 1) % 25 === 0;
                     let pNum = isPageEnd ? toBrailleNumber(pageCount) : "";
                     let limit = isPageEnd ? (40 - (pNum.length + 3)) : 40;
-
                     let segment = "";
 
                     if (cleanLine.length <= limit) {
@@ -163,12 +176,27 @@
         });
 
         editor.addEventListener('input', function() {
+            const start = this.selectionStart;
+
             if (this.value.includes('Ê')) {
-                const start = this.selectionStart;
                 this.value = this.value.replace(/Ê/g, '\n');
                 const newPos = this.value.indexOf('\n', start - 2) + 1;
                 this.selectionStart = this.selectionEnd = newPos;
             }
+
+            const before = this.value;
+            const wrapped = applyWordWrap(before);
+
+            if (wrapped !== before) {
+                const cursor = this.selectionStart;
+                this.value = wrapped;
+                // Count how many \n characters were added before the cursor position
+                // and adjust the cursor forward by that amount
+                const addedNewlines = (wrapped.substring(0, cursor + 5).split('\n').length) -
+                                      (before.substring(0, cursor + 5).split('\n').length);
+                this.selectionStart = this.selectionEnd = cursor + addedNewlines;
+            }
+
             localStorage.setItem('braille_editor_v1', this.value);
         });
 
@@ -193,4 +221,3 @@
     </script>
 </body>
 </html>
-```

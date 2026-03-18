@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -91,7 +92,6 @@
             editor.focus();
         };
 
-        // Helper: Convert number to Braille ASCII digits (# + a-j)
         function toBrailleNumber(num) {
             const map = { '1':'a', '2':'b', '3':'c', '4':'d', '5':'e', '6':'f', '7':'g', '8':'h', '9':'i', '0':'j' };
             const digits = num.toString().split('').map(d => map[d]).join('');
@@ -99,17 +99,13 @@
         }
 
         function formatForBRF() {
-            // Split by existing newlines to respect manual formatting
             let inputLines = editor.value.split('\n');
             let finalLines = [];
             let pageCount = 1;
 
             inputLines.forEach((line) => {
-                // Remove any previous formatting artifacts (page numbers)
                 let cleanLine = line.replace(/ {3,}#[a-j]+/g, '');
 
-                // Loop to handle wrapping if a single line is > 40 characters
-                // We also check if we need to start a new page
                 while (cleanLine.length > 0 || (cleanLine === "" && (finalLines.length + 1) % 25 === 0)) {
                     let isPageEnd = (finalLines.length + 1) % 25 === 0;
                     let pNum = isPageEnd ? toBrailleNumber(pageCount) : "";
@@ -121,10 +117,8 @@
                         segment = cleanLine;
                         cleanLine = "";
                     } else {
-                        // Find the last space within the allowed limit for word wrap
                         let lastSpace = cleanLine.lastIndexOf(' ', limit);
                         if (lastSpace === -1) {
-                            // No space found; force break at limit
                             segment = cleanLine.substring(0, limit);
                             cleanLine = cleanLine.substring(limit);
                         } else {
@@ -134,7 +128,6 @@
                     }
 
                     if (isPageEnd) {
-                        // Calculate right-alignment with at least 3 spaces
                         let spacesNeeded = 40 - segment.length - pNum.length;
                         finalLines.push(segment + " ".repeat(Math.max(3, spacesNeeded)) + pNum);
                         pageCount++;
@@ -170,11 +163,11 @@
         });
 
         editor.addEventListener('input', function() {
-            // Handle the Braille "Enter" replacement
             if (this.value.includes('Ê')) {
                 const start = this.selectionStart;
                 this.value = this.value.replace(/Ê/g, '\n');
-                this.selectionStart = this.selectionEnd = start;
+                const newPos = this.value.indexOf('\n', start - 2) + 1;
+                this.selectionStart = this.selectionEnd = newPos;
             }
             localStorage.setItem('braille_editor_v1', this.value);
         });
@@ -182,7 +175,6 @@
         async function copyToClipboard() {
             if (!editor.value) return;
             try {
-                // Clipboard API preserves \n characters accurately
                 await navigator.clipboard.writeText(editor.value);
                 announcer.textContent = "Text copied to clipboard.";
             } catch (err) {
@@ -201,3 +193,4 @@
     </script>
 </body>
 </html>
+```

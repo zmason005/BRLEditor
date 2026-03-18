@@ -71,7 +71,11 @@
         <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
     </div>
 
+    <!-- General announcer: used for copy, format, clear. Shows on braille display. -->
     <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Navigation announcer: used for line announcements. Speech only — braille suppressed via aria-hidden toggle. -->
+    <div id="nav-announcer" class="sr-only" aria-live="assertive" aria-atomic="true" aria-hidden="true"></div>
 
     <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
     
@@ -80,7 +84,8 @@
     <script>
         const editor = document.getElementById('editor');
         const announcer = document.getElementById('aria-announcer');
-        let lastLineNumber = -1;
+        const navAnnouncer = document.getElementById('nav-announcer');
+        let lastLineIndex = -1;
 
         window.onload = () => {
             const savedText = localStorage.getItem('braille_editor_v1');
@@ -115,6 +120,39 @@
             }
             return wrapped.join('\n');
         }
+
+        function announceLine(lineIndex, lines) {
+            const lineNumber = lineIndex + 1;
+            const charCount = (lines[lineIndex] || "").length;
+            const message = `Line ${lineNumber}, ${charCount} characters`;
+
+            // Unhide the nav announcer, set the message, then hide it again
+            // after a short delay to suppress braille display output
+            navAnnouncer.removeAttribute('aria-hidden');
+            navAnnouncer.textContent = '';
+            requestAnimationFrame(() => {
+                navAnnouncer.textContent = message;
+                setTimeout(() => {
+                    navAnnouncer.setAttribute('aria-hidden', 'true');
+                }, 1000);
+            });
+        }
+
+        function checkLineChange() {
+            const text = editor.value;
+            const pos = editor.selectionStart;
+            const lines = text.split('\n');
+            const currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+
+            if (currentLineIndex !== lastLineIndex) {
+                announceLine(currentLineIndex, lines);
+                lastLineIndex = currentLineIndex;
+            }
+        }
+
+        document.addEventListener('selectionchange', () => {
+            if (document.activeElement === editor) checkLineChange();
+        });
 
         function formatForBRF() {
             let inputLines = editor.value.split('\n');
@@ -161,23 +199,6 @@
             localStorage.setItem('braille_editor_v1', editor.value);
             editor.focus();
         }
-
-        function handleNavigation() {
-            const text = editor.value;
-            const pos = editor.selectionStart;
-            const lines = text.split('\n');
-            let currentLineIndex = text.substring(0, pos).split('\n').length - 1;
-            
-            if (currentLineIndex !== lastLineNumber) {
-                const lineLength = (lines[currentLineIndex] || "").length;
-                announcer.textContent = `Line ${currentLineIndex + 1}, ${lineLength} characters`;
-                lastLineNumber = currentLineIndex;
-            }
-        }
-
-        document.addEventListener('selectionchange', () => {
-            if (document.activeElement === editor) handleNavigation();
-        });
 
         editor.addEventListener('input', function() {
             const start = this.selectionStart;

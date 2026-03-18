@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Braille BRF Editor - Standard Mode</title>
     <style>
+        @font-face {
+            font-family: 'SimBraille';
+            src: url('SimBraille.ttf') format('truetype');
+        }
+
         body { 
             font-family: -apple-system, sans-serif; 
             max-width: 800px; 
@@ -46,7 +51,7 @@
             flex-grow: 1; 
             width: 100%;
             max-width: 40ch; 
-            font-family: 'Courier New', monospace; 
+            font-family: 'SimBraille', 'Courier New', monospace; 
             font-size: 1.25rem;
             padding: 15px;
             border: 2px solid #333;

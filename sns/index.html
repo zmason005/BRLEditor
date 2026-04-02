@@ -7,70 +7,99 @@
     <style>
         @font-face {
             font-family: 'SimBraille';
-            src: url('SimBrl.ttf') format('truetype');
+            /* Updated file path as requested */
+            src: url('main/SimBraille.ttf') format('truetype');
         }
 
         body {
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 20px;
-            background-color: #f4f4f9;
+            padding: 30px;
+            background-color: #f0f2f5;
+            color: #333;
         }
-
-        h1 { color: #333; }
 
         .container {
             width: 100%;
-            max-width: 800px;
+            max-width: 900px;
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
-        /* Editor Styling */
+        h1 { margin-top: 0; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+
+        /* Editor Area */
         #editor {
             width: 100%;
-            height: 200px;
-            font-family: 'SimBraille', sans-serif;
-            font-size: 24px;
-            padding: 10px;
-            margin-bottom: 20px;
-            border: 2px solid #333;
-            background: white;
+            height: 250px;
+            font-family: 'SimBraille', 'Courier New', monospace;
+            font-size: 28px;
+            padding: 15px;
+            margin: 10px 0 20px 0;
+            border: 2px solid #cbd5e0;
+            border-radius: 4px;
             white-space: pre-wrap;
+            word-wrap: break-word;
             overflow-y: auto;
+            outline: none;
+            box-sizing: border-box;
         }
+
+        #editor:focus { border-color: #007bff; }
 
         /* Read-Only Slate Section */
         #slate-view {
             width: 100%;
-            height: 200px;
-            font-family: 'SimBraille', sans-serif;
-            font-size: 24px;
-            padding: 10px;
-            border: 2px solid #666;
-            background: #e9e9e9;
+            height: 250px;
+            font-family: 'SimBraille', 'Courier New', monospace;
+            font-size: 28px;
+            padding: 15px;
+            border: 2px solid #a0aec0;
+            border-radius: 4px;
+            background: #edf2f7;
             white-space: pre-wrap;
-            direction: rtl; /* Right to Left */
+            direction: rtl; /* Right to Left for Slate simulation */
             overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 15px;
         }
 
         button {
-            padding: 10px 20px;
+            padding: 12px 24px;
             font-size: 16px;
+            font-weight: bold;
             cursor: pointer;
             background-color: #007bff;
             color: white;
             border: none;
-            border-radius: 5px;
-            margin-bottom: 10px;
+            border-radius: 4px;
+            transition: background 0.2s;
         }
 
         button:hover { background-color: #0056b3; }
         
         .label {
-            font-weight: bold;
-            margin-bottom: 5px;
-            display: block;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .instructions {
+            font-size: 14px;
+            color: #718096;
+            margin-bottom: 15px;
         }
     </style>
 </head>
@@ -78,14 +107,17 @@
 
     <div class="container">
         <h1>D-Stylus Braille Editor</h1>
+        <p class="instructions">Use <b>F D S</b> (Dots 1-2-3) and <b>J K L</b> (Dots 4-5-6). Release keys to type.</p>
         
-        <span class="label">Editor (Reading Mode - LTR):</span>
+        <span class="label">Editor (Reading View)</span>
         <div id="editor" contenteditable="true" spellcheck="false"></div>
 
-        <button onclick="activateSlateView()">Generate Slate View</button>
+        <div class="controls">
+            <button onclick="activateSlateView()">Generate Slate View</button>
+        </div>
 
-        <span class="label">Slate View (Writing Mode - RTL & Mirrored):</span>
-        <div id="slate-view" readonly></div>
+        <span class="label">Read-Only (Slate View - RTL & Mirrored)</span>
+        <div id="slate-view"></div>
     </div>
 
     <script>
@@ -96,7 +128,7 @@
         let keysDown = new Set();
         const brailleKeys = ['f', 'd', 's', 'j', 'k', 'l'];
 
-        // 1. CHORDED INPUT LOGIC
+        // Capture chords and prevent default typing
         editor.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
 
@@ -106,24 +138,23 @@
                 keysDown.add(key);
             } else if (key === ' ') {
                 e.preventDefault();
-                insertBraille('\u2800');
+                insertAtCursor('\u2800');
             } else if (key === 'enter') {
                 e.preventDefault();
-                insertBraille('\n');
+                insertAtCursor('\n');
             }
-            // Backspace is allowed to behave naturally
         });
 
+        // Fire character on release of the full chord
         editor.addEventListener('keyup', (e) => {
             const key = e.key.toLowerCase();
             
             if (brailleKeys.includes(key)) {
                 keysDown.delete(key);
 
-                // Fire character only when ALL keys are released
                 if (keysDown.size === 0 && currentChord.size > 0) {
                     const char = calculateBraille(currentChord);
-                    insertBraille(char);
+                    insertAtCursor(char);
                     currentChord.clear();
                 }
             }
@@ -140,42 +171,101 @@
             return String.fromCharCode(0x2800 + val);
         }
 
-        function insertBraille(char) {
-            const selection = window.getSelection();
-            if (!selection.rangeCount) return;
-            selection.deleteFromDocument();
-            selection.getRangeAt(0).insertNode(document.createTextNode(char));
-            selection.collapseToEnd();
-            handleWordWrap();
-        }
-
-        // 2. WORD WRAP LOGIC (40 Cells)
-        function handleWordWrap() {
-            const lines = editor.innerText.split('\n');
-            let lastLine = lines[lines.length - 1];
-
-            if (lastLine.length > 40) {
-                const lastSpaceIndex = lastLine.lastIndexOf('\u2800');
-                if (lastSpaceIndex !== -1) {
-                    // Move the last word to a new line
-                    const before = editor.innerText.substring(0, editor.innerText.length - (lastLine.length - lastSpaceIndex));
-                    const after = editor.innerText.substring(editor.innerText.length - (lastLine.length - lastSpaceIndex - 1));
-                    editor.innerText = before + '\n' + after;
-                } else {
-                    // Hard break if no space
-                    editor.innerText = editor.innerText.slice(0, -1) + '\n' + editor.innerText.slice(-1);
-                }
-                // Reset cursor to end
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(editor);
-                range.collapse(false);
+        function insertAtCursor(char) {
+            const sel = window.getSelection();
+            if (sel.rangeCount) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const node = document.createTextNode(char);
+                range.insertNode(node);
+                
+                // Move cursor to after the inserted character
+                range.setStartAfter(node);
+                range.setEndAfter(node);
                 sel.removeAllRanges();
                 sel.addRange(range);
+                
+                checkWordWrap();
             }
         }
 
-        // 3. SLATE MIRRORING LOGIC
+        // Logic for 40-cell word wrap
+        function checkWordWrap() {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+
+            const text = editor.innerText;
+            const lines = text.split('\n');
+            let cursorOffset = getCursorCharacterOffsetWithin(editor);
+            
+            // Check only the line currently being typed
+            let currentLineIndex = text.substring(0, cursorOffset).split('\n').length - 1;
+            let currentLine = lines[currentLineIndex];
+
+            if (currentLine && currentLine.length > 40) {
+                const lastSpace = currentLine.lastIndexOf('\u2800');
+                
+                if (lastSpace !== -1 && lastSpace > 0) {
+                    // Wrap at the last space
+                    let textBefore = lines.slice(0, currentLineIndex).join('\n');
+                    if (textBefore) textBefore += '\n';
+                    
+                    let lineBeforeSpace = currentLine.substring(0, lastSpace);
+                    let lineAfterSpace = currentLine.substring(lastSpace + 1);
+                    let textAfter = lines.slice(currentLineIndex + 1).join('\n');
+
+                    editor.innerText = textBefore + lineBeforeSpace + '\n' + lineAfterSpace + (textAfter ? '\n' + textAfter : '');
+                } else {
+                    // Hard break if no space exists
+                    editor.innerText = text.slice(0, cursorOffset - 1) + '\n' + text.slice(cursorOffset - 1);
+                }
+                restoreCursor(cursorOffset + 1);
+            }
+        }
+
+        // Helper to keep cursor in place after innerText manipulation
+        function getCursorCharacterOffsetWithin(element) {
+            var caretOffset = 0;
+            var doc = element.ownerDocument || element.document;
+            var win = doc.defaultView || doc.parentWindow;
+            var sel = win.getSelection();
+            if (sel.rangeCount > 0) {
+                var range = win.getSelection().getRangeAt(0);
+                var preCaretRange = range.cloneRange();
+                preCaretRange.selectNodeContents(element);
+                preCaretRange.setEnd(range.endContainer, range.endOffset);
+                caretOffset = preCaretRange.toString().length;
+            }
+            return caretOffset;
+        }
+
+        function restoreCursor(offset) {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            let currentPath = 0;
+            
+            function traverse(node) {
+                if (node.nodeType === 3) {
+                    if (currentPath + node.length >= offset) {
+                        range.setStart(node, offset - currentPath);
+                        return true;
+                    }
+                    currentPath += node.length;
+                } else {
+                    for (let child of node.childNodes) {
+                        if (traverse(child)) return true;
+                    }
+                }
+                return false;
+            }
+            
+            traverse(editor);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        // Mirror and RTL flip for the Slate
         function flipCell(char) {
             let code = char.charCodeAt(0) - 0x2800;
             if (code < 0 || code > 255) return char;
@@ -191,15 +281,12 @@
         }
 
         function activateSlateView() {
-            const text = editor.innerText;
-            const lines = text.split('\n');
-            
-            const processedLines = lines.map(line => {
-                // Flip each character then reverse the whole line
+            const lines = editor.innerText.split('\n');
+            const processed = lines.map(line => {
+                // Flip bits then reverse string for RTL
                 return line.split('').map(flipCell).reverse().join('');
             });
-
-            slateView.innerText = processedLines.join('\n');
+            slateView.innerText = processed.join('\n');
         }
     </script>
 </body>

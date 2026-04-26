@@ -31,15 +31,16 @@
             margin-right: 10px;
             border-radius: 4px;
             border: 1px solid #ffffff;
+            margin-bottom: 5px;
         }
 
         .btn-copy { background-color: #0056b3; color: white; }
-        .btn-format { background-color: #d9534f; color: white; border-color: #d43f3a; }
+        .btn-format { background-color: #28a745; color: white; border-color: #1e7e34; }
 
         textarea { 
             flex-grow: 1; 
             width: 100%;
-            max-width: 44ch; /* 4 chars for margin + 40 for text */
+            max-width: 45ch; 
             font-family: 'SimBraille', 'Courier New', monospace; 
             font-size: 1.25rem;
             padding: 15px;
@@ -57,7 +58,7 @@
 <body>
 
     <h2>Braille Editor (Locked Margin)</h2>
-    <p>The first 4 cells are locked. Use <strong>Clean for Export</strong> to remove numbers before copying.</p>
+    <p>Margins are locked. Use <strong>Clean for Export</strong> to remove numbers and preserve spacing.</p>
 
     <div class="controls">
         <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
@@ -65,16 +66,21 @@
         <button onclick="clearEditor()">Clear</button>
     </div>
 
-    <textarea id="editor" spellcheck="false"></textarea>
+    <textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
-        const MARGIN_SIZE = 4; // 3 digits + 1 space
-        const WALL = '\u2060'; // Word Joiner (Invisible wall)
+        const MARGIN_SIZE = 5; // # + 3 digits + space
+        const WALL = '\u2060'; 
+        const BRAILLE_BLANK = '\u2800'; 
 
         window.onload = () => {
             const saved = localStorage.getItem('braille_margin_v1');
-            editor.value = saved || generateLine(1);
+            if (saved) {
+                editor.value = saved;
+            } else {
+                editor.value = toBrailleNumber(1);
+            }
             editor.focus();
             enforceGuard();
         };
@@ -82,14 +88,9 @@
         function toBrailleNumber(num) {
             const map = { '1':'a', '2':'b', '3':'c', '4':'d', '5':'e', '6':'f', '7':'g', '8':'h', '9':'i', '0':'j' };
             const digits = num.toString().padStart(3, '0').split('').map(d => map[d]).join('');
-            return '#' + digits + WALL + ' '; 
+            return '#' + digits + ' '; 
         }
 
-        function generateLine(lineNum) {
-            return toBrailleNumber(lineNum);
-        }
-
-        // Snap cursor forward if it tries to enter the margin
         function enforceGuard() {
             const pos = editor.selectionStart;
             const text = editor.value;
@@ -97,12 +98,14 @@
             const relativePos = pos - lineStart;
 
             if (relativePos < MARGIN_SIZE) {
-                editor.selectionStart = editor.selectionEnd = lineStart + MARGIN_SIZE;
+                editor.setSelectionRange(lineStart + MARGIN_SIZE, lineStart + MARGIN_SIZE);
             }
         }
 
-        editor.addEventListener('click', enforceGuard);
-        editor.addEventListener('keyup', enforceGuard);
+        // Use selectionchange for robust cursor locking in Safari
+        document.addEventListener('selectionchange', () => {
+            if (document.activeElement === editor) enforceGuard();
+        });
 
         editor.addEventListener('keydown', (e) => {
             const pos = editor.selectionStart;
@@ -110,46 +113,55 @@
             const lineStart = text.lastIndexOf('\n', pos - 1) + 1;
             const relativePos = pos - lineStart;
 
-            // Prevent backspacing into the margin
+            // Block backspacing into the number
             if (e.key === 'Backspace' && relativePos <= MARGIN_SIZE) {
                 e.preventDefault();
             }
 
-            // Handle Enter key: Insert a new line with a new number
             if (e.key === 'Enter') {
                 e.preventDefault();
-                const lines = text.split('\n');
-                const currentLineIdx = text.substring(0, pos).split('\n').length;
-                const newNum = toBrailleNumber(currentLineIdx + 1);
-                
                 const before = text.substring(0, pos);
                 const after = text.substring(pos);
                 
-                editor.value = before + '\n' + newNum + after;
-                editor.selectionStart = editor.selectionEnd = pos + 1 + MARGIN_SIZE;
-                renumberLines();
+                // We will renumber the whole document after inserting
+                const tempText = before + '\n' + after;
+                editor.value = tempText;
+                
+                // Renumber and restore cursor
+                renumberLines(pos + 1 + MARGIN_SIZE);
             }
         });
 
-        function renumberLines() {
+        function renumberLines(targetCursor = null) {
+            const cursor = targetCursor !== null ? targetCursor : editor.selectionStart;
             const lines = editor.value.split('\n');
+            
             const updated = lines.map((line, i) => {
-                const clean = line.substring(MARGIN_SIZE);
-                return toBrailleNumber(i + 1) + clean;
+                // Remove existing #xxx prefix if present
+                const content = line.replace(/^#[a-j]{3} /, "");
+                return toBrailleNumber(i + 1) + content;
             });
-            const cursor = editor.selectionStart;
+
             editor.value = updated.join('\n');
-            editor.selectionStart = editor.selectionEnd = cursor;
+            editor.setSelectionRange(cursor, cursor);
             localStorage.setItem('braille_margin_v1', editor.value);
         }
 
         function cleanForExport() {
             const lines = editor.value.split('\n');
-            // Remove the first 4 characters (the margin) from every line
-            const cleaned = lines.map(line => line.substring(MARGIN_SIZE)).join('\n');
+            const cleaned = lines.map(line => {
+                let content = line.replace(/^#[a-j]{3} /, "");
+                
+                // Prevent iPhone from deleting empty lines
+                if (content.length === 0) return BRAILLE_BLANK;
+                
+                // Prevent iPhone from collapsing spaces (center-alignment fix)
+                return content.replace(/  /g, ' ' + BRAILLE_BLANK);
+            }).join('\n');
+
             editor.value = cleaned;
             localStorage.setItem('braille_margin_v1', editor.value);
-            alert("Line numbers removed. You can now copy the text.");
+            alert("Cleaned! Margin removed and spaces preserved.");
         }
 
         async function copyToClipboard() {
@@ -160,11 +172,17 @@
         }
 
         function clearEditor() {
-            if(confirm("Clear?")) {
+            if(confirm("Clear document?")) {
                 editor.value = toBrailleNumber(1);
                 localStorage.removeItem('braille_margin_v1');
+                editor.focus();
             }
         }
+
+        // Save on every input
+        editor.addEventListener('input', () => {
+            localStorage.setItem('braille_margin_v1', editor.value);
+        });
     </script>
 </body>
 </html>

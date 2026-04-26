@@ -84,7 +84,7 @@
 
     <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
     
-    <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false"></textarea>
+    <textarea id="editor" aria-label="Braille Editor, Line #a" spellcheck="false"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
@@ -98,6 +98,7 @@
                 editor.selectionStart = editor.selectionEnd = editor.value.length;
             }
             editor.focus();
+            checkLineChange(); // Initial label update
         };
 
         function toBrailleNumber(num) {
@@ -130,6 +131,7 @@
             const charCount = (lines[lineIndex] || "").length;
             const message = `Line ${lineNumber}, ${charCount} characters`;
 
+            // Update ARIA Live region for Speech
             navAnnouncer.removeAttribute('aria-hidden');
             navAnnouncer.textContent = '';
             requestAnimationFrame(() => {
@@ -138,6 +140,12 @@
                     navAnnouncer.setAttribute('aria-hidden', 'true');
                 }, 1000);
             });
+
+            // ARIA HACK FOR BRAILLE DISPLAY:
+            // Update the aria-label of the textarea itself. 
+            // This forces Safari/VoiceOver to push the new "name" of the textbox to the Braille display.
+            const brailleLineNum = toBrailleNumber(lineNumber);
+            editor.setAttribute('aria-label', `Line ${brailleLineNum}`);
         }
 
         function checkLineChange() {
@@ -222,6 +230,7 @@
             }
 
             localStorage.setItem('braille_editor_v1', this.value);
+            checkLineChange(); // Ensure label updates on input
         });
 
         async function copyToClipboard() {
@@ -238,6 +247,7 @@
                 editor.value = '';
                 localStorage.removeItem('braille_editor_v1');
                 editor.focus();
+                checkLineChange();
             }
         }
     </script>

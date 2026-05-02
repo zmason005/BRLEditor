@@ -4,12 +4,97 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Braille BRF Editor - Standard Mode</title>
-    <!-- Reference the external CSS file in the same directory -->
-    <link rel="stylesheet" href="braille-editor.css">
+    <style>
+        @font-face {
+            font-family: 'SimBraille';
+            src: url('SimBraille.ttf') format('truetype');
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            margin: 0; 
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #000000;
+            color: #ffffff;
+            box-sizing: border-box;
+        }
+
+        .version-notice {
+            color: #ffff00; /* Yellow lettering */
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .top-section { flex-shrink: 0; padding: 5px; }
+        
+        .controls { 
+            margin: 10px 0; 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 10px; 
+        }
+        
+        button {
+            padding: 10px 15px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            border: 1px solid #ffffff;
+            transition: opacity 0.2s;
+        }
+
+        button:active { opacity: 0.7; }
+
+        .btn-copy { background-color: #0056b3; color: white; }
+        .btn-clear { background-color: #333333; color: #ffffff; }
+        .btn-format { background-color: #28a745; color: white; border-color: #1e7e34; }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        textarea { 
+            flex-grow: 1; 
+            width: 100%;
+            /* Scales font to fit 40 chars on any screen width */
+            font-size: clamp(12px, 2.2vw, 22px); 
+            font-family: 'SimBraille', 'Courier New', monospace; 
+            padding: 2%;
+            border: 2px solid #ffffff;
+            box-sizing: border-box; 
+            line-height: 1.5;
+            white-space: pre;
+            overflow-x: hidden; /* Prevent horizontal scrolling */
+            overflow-y: auto;
+            resize: none;
+            background-color: #000000;
+            color: #ffffff;
+            outline: none;
+        }
+
+        @media (min-width: 1000px) {
+            textarea {
+                max-width: 42ch;
+                margin: 0 auto;
+                font-size: 20px;
+            }
+        }
+    </style>
 </head>
 <body>
 
     <div class="top-section">
+        <p class="version-notice">this is a new version</p>
         <h2>Client BRF Editor</h2>
         <p>Type your draft. Use <strong>Ê</strong> for new lines. Use <strong>Format for BRF</strong> to finalize page numbering.</p>
     </div>
@@ -24,7 +109,6 @@
 
     <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
     
-    <!-- wrap="off" prevents the browser from adding its own line breaks -->
     <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false" wrap="off"></textarea>
 
     <script>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>D-Stylus Braille Editor - Fixed 40 Cell Width</title>
+    <title>D-Stylus Braille Editor - Exact 40 Cell Lock</title>
     <style>
         @font-face {
             font-family: 'SimBraille';
@@ -33,17 +33,16 @@
             justify-content: center;
             flex: 1;
             width: 100%;
-            /* Total width adjusted to accommodate two 40-cell pages */
-            max-width: 1300px; 
+            max-width: 1800px; /* Widened to fit two large pages side-by-side */
             padding: 20px;
             box-sizing: border-box;
+            gap: 20px;
         }
 
         section {
             display: flex;
             flex-direction: column;
-            /* Using pixels instead of ch to force 40-cell visibility */
-            width: 600px; 
+            width: 850px; /* Specifically calculated for 40 cells at 20px font */
             box-sizing: border-box;
         }
 
@@ -70,17 +69,16 @@
             background-color: #000;
             color: #fff;
             font-family: 'SimBraille', monospace;
-            /* Font size reduced slightly to ensure 40 chars fit in 600px */
-            font-size: 22px; 
-            line-height: 1.4;
-            letter-spacing: 1px;
-            padding: 15px;
+            font-size: 20px; 
+            line-height: 1.5;
+            letter-spacing: 2px;
+            padding: 20px;
             border: 1px solid #222;
             outline: none;
             overflow-y: auto;
             overflow-x: hidden; 
-            white-space: pre-wrap;
-            word-break: break-all;
+            /* 'pre' is the key: it ignores box width and only breaks on \n */
+            white-space: pre; 
         }
 
         #slate-view {
@@ -125,7 +123,7 @@
         </section>
 
         <section id="translation-region" aria-label="translation">
-            <span class="label">Right Page: Slate (Simultaneous Mirror)</span>
+            <span class="label">Right Page: Slate (Exact Mirror)</span>
             <div id="slate-view"></div>
         </section>
     </div>
@@ -141,6 +139,7 @@
         let keysDown = new Set();
         const brailleKeys = ['f', 'd', 's', 'j', 'k', 'l'];
 
+        // Persistence Logic
         window.onload = () => {
             const savedText = localStorage.getItem('braille_editor_content');
             if (savedText) {
@@ -162,6 +161,7 @@
                 e.preventDefault();
                 processInput('\n');
             } else if (key === 'backspace') {
+                // Wait for the browser to remove the char, then sync
                 setTimeout(() => {
                     updateSlateView();
                     saveToStorage();
@@ -197,18 +197,23 @@
             if (!sel.rangeCount) return;
             const range = sel.getRangeAt(0);
 
+            // 1. Get current text content to check line length
             const fullText = editor.innerText;
             const caretPos = getCaretOffset(editor);
+            
+            // Extract the text of the line the cursor is currently on
             const lines = fullText.substring(0, caretPos).split('\n');
             const currentLineText = lines[lines.length - 1];
 
-            // 40-cell wrap check
+            // 2. Force Break Logic
+            // If the current line is 40 characters, insert a newline first
             if (currentLineText.length >= 40 && char !== '\n') {
                 const br = document.createTextNode('\n');
                 range.insertNode(br);
                 range.setStartAfter(br);
             }
 
+            // 3. Insert the character
             const node = document.createTextNode(char);
             range.deleteContents();
             range.insertNode(node);
@@ -217,6 +222,7 @@
             sel.removeAllRanges();
             sel.addRange(range);
 
+            // 4. Update Mirror and Storage
             updateSlateView();
             saveToStorage();
         }
@@ -226,7 +232,7 @@
         }
 
         function clearAllData() {
-            if (confirm("Are you sure you want to clear both pages? This cannot be undone.")) {
+            if (confirm("Are you sure you want to clear both pages?")) {
                 editor.innerText = "";
                 slateView.innerText = "";
                 localStorage.removeItem('braille_editor_content');
@@ -263,6 +269,7 @@
         function updateSlateView() {
             const lines = editor.innerText.split('\n');
             const processed = lines.map(line => {
+                // Mirror every character and then reverse the entire string
                 return line.split('').map(flipCell).reverse().join('');
             });
             slateView.innerText = processed.join('\n');

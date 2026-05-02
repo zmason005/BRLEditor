@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>D-Stylus Braille Editor - Auto-Sync & Persistent</title>
+    <title>D-Stylus Braille Editor - Fixed 40 Cell Width</title>
     <style>
         @font-face {
             font-family: 'SimBraille';
@@ -33,16 +33,17 @@
             justify-content: center;
             flex: 1;
             width: 100%;
-            max-width: 1200px;
+            /* Total width adjusted to accommodate two 40-cell pages */
+            max-width: 1300px; 
             padding: 20px;
             box-sizing: border-box;
-            overflow: hidden;
         }
 
         section {
             display: flex;
             flex-direction: column;
-            width: 42ch; 
+            /* Using pixels instead of ch to force 40-cell visibility */
+            width: 600px; 
             box-sizing: border-box;
         }
 
@@ -69,8 +70,10 @@
             background-color: #000;
             color: #fff;
             font-family: 'SimBraille', monospace;
-            font-size: 28px;
-            line-height: 1.2;
+            /* Font size reduced slightly to ensure 40 chars fit in 600px */
+            font-size: 22px; 
+            line-height: 1.4;
+            letter-spacing: 1px;
             padding: 15px;
             border: 1px solid #222;
             outline: none;
@@ -138,7 +141,6 @@
         let keysDown = new Set();
         const brailleKeys = ['f', 'd', 's', 'j', 'k', 'l'];
 
-        // Load persisted data on startup
         window.onload = () => {
             const savedText = localStorage.getItem('braille_editor_content');
             if (savedText) {
@@ -160,7 +162,6 @@
                 e.preventDefault();
                 processInput('\n');
             } else if (key === 'backspace') {
-                // Trigger sync after the browser finishes the backspace action
                 setTimeout(() => {
                     updateSlateView();
                     saveToStorage();
@@ -196,12 +197,12 @@
             if (!sel.rangeCount) return;
             const range = sel.getRangeAt(0);
 
-            // 40-cell wrap check
             const fullText = editor.innerText;
             const caretPos = getCaretOffset(editor);
             const lines = fullText.substring(0, caretPos).split('\n');
             const currentLineText = lines[lines.length - 1];
 
+            // 40-cell wrap check
             if (currentLineText.length >= 40 && char !== '\n') {
                 const br = document.createTextNode('\n');
                 range.insertNode(br);

@@ -3,135 +3,141 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>D-Stylus Braille Editor</title>
+    <title>D-Stylus Braille Editor - 40 Cell Lock</title>
     <style>
         @font-face {
             font-family: 'SimBraille';
-            /* Updated file path as requested */
             src: url('main/SimBraille.ttf') format('truetype');
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            margin: 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: 30px;
-            background-color: #f0f2f5;
-            color: #333;
+            height: 100vh;
+            align-items: center; /* Center the "Book" on the screen */
         }
 
-        .container {
+        header {
             width: 100%;
-            max-width: 900px;
-            background: white;
-            padding: 25px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+            padding: 10px;
+            border-bottom: 1px solid #444;
         }
 
-        h1 { margin-top: 0; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
-
-        /* Editor Area */
-        #editor {
-            width: 100%;
-            height: 250px;
-            font-family: 'SimBraille', 'Courier New', monospace;
-            font-size: 28px;
-            padding: 15px;
-            margin: 10px 0 20px 0;
-            border: 2px solid #cbd5e0;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-y: auto;
-            outline: none;
-            box-sizing: border-box;
-        }
-
-        #editor:focus { border-color: #007bff; }
-
-        /* Read-Only Slate Section */
-        #slate-view {
-            width: 100%;
-            height: 250px;
-            font-family: 'SimBraille', 'Courier New', monospace;
-            font-size: 28px;
-            padding: 15px;
-            border: 2px solid #a0aec0;
-            border-radius: 4px;
-            background: #edf2f7;
-            white-space: pre-wrap;
-            direction: rtl; /* Right to Left for Slate simulation */
-            overflow-y: auto;
-            box-sizing: border-box;
-        }
-
-        .controls {
+        .book-container {
             display: flex;
-            gap: 15px;
-            align-items: center;
-            margin-bottom: 15px;
+            justify-content: center; /* Keeps pages together */
+            flex: 1;
+            width: auto;
+            max-width: 100%;
+            padding: 20px;
+        }
+
+        section {
+            display: flex;
+            flex-direction: column;
+            /* Lock width to 40 characters + small padding */
+            width: 42ch; 
+            box-sizing: border-box;
+        }
+
+        #editor-region {
+            border-right: 2px solid #fff; /* The white line divider */
+            padding-right: 20px;
+        }
+
+        #translation-region {
+            padding-left: 20px;
+        }
+
+        .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #888;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        #editor, #slate-view {
+            height: 400px;
+            background-color: #000;
+            color: #fff;
+            font-family: 'SimBraille', monospace;
+            font-size: 28px;
+            line-height: 1.4;
+            padding: 10px;
+            border: 1px solid #333;
+            outline: none;
+            overflow-y: auto;
+            overflow-x: hidden; /* Prevent horizontal scroll */
+            white-space: pre;    /* Strict character positioning */
+        }
+
+        #slate-view {
+            direction: rtl; 
+            background-color: #050505;
+        }
+
+        .toolbar {
+            width: 100%;
+            padding: 20px;
+            background: #111;
+            display: flex;
+            justify-content: center;
+            border-top: 1px solid #444;
         }
 
         button {
-            padding: 12px 24px;
-            font-size: 16px;
+            padding: 12px 30px;
+            background-color: #fff;
+            color: #000;
+            border: none;
             font-weight: bold;
             cursor: pointer;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            transition: background 0.2s;
-        }
-
-        button:hover { background-color: #0056b3; }
-        
-        .label {
-            font-weight: 600;
-            color: #4a5568;
             text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 1px;
         }
 
-        .instructions {
-            font-size: 14px;
-            color: #718096;
-            margin-bottom: 15px;
-        }
+        button:hover { background-color: #ccc; }
     </style>
 </head>
 <body>
 
-    <div class="container">
+    <header>
         <h1>D-Stylus Braille Editor</h1>
-        <p class="instructions">Use <b>F D S</b> (Dots 1-2-3) and <b>J K L</b> (Dots 4-5-6). Release keys to type.</p>
-        
-        <span class="label">Editor (Reading View)</span>
-        <div id="editor" contenteditable="true" spellcheck="false"></div>
+    </header>
 
-        <div class="controls">
-            <button onclick="activateSlateView()">Generate Slate View</button>
-        </div>
+    <div class="book-container">
+        <!-- Editor Region -->
+        <section id="editor-region" aria-label="editor">
+            <span class="label">Reading View (LTR)</span>
+            <div id="editor" contenteditable="true" spellcheck="false" autofocus></div>
+        </section>
 
-        <span class="label">Read-Only (Slate View - RTL & Mirrored)</span>
-        <div id="slate-view"></div>
+        <!-- Translation Region -->
+        <section id="translation-region" aria-label="translation">
+            <span class="label">Slate View (RTL & Mirrored)</span>
+            <div id="slate-view"></div>
+        </section>
+    </div>
+
+    <div class="toolbar">
+        <button onclick="activateSlateView()">Generate Slate View</button>
     </div>
 
     <script>
         const editor = document.getElementById('editor');
         const slateView = document.getElementById('slate-view');
-
         let currentChord = new Set();
         let keysDown = new Set();
         const brailleKeys = ['f', 'd', 's', 'j', 'k', 'l'];
 
-        // Capture chords and prevent default typing
         editor.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
-
             if (brailleKeys.includes(key)) {
                 e.preventDefault();
                 currentChord.add(key);
@@ -145,13 +151,10 @@
             }
         });
 
-        // Fire character on release of the full chord
         editor.addEventListener('keyup', (e) => {
             const key = e.key.toLowerCase();
-            
             if (brailleKeys.includes(key)) {
                 keysDown.delete(key);
-
                 if (keysDown.size === 0 && currentChord.size > 0) {
                     const char = calculateBraille(currentChord);
                     insertAtCursor(char);
@@ -178,112 +181,99 @@
                 range.deleteContents();
                 const node = document.createTextNode(char);
                 range.insertNode(node);
-                
-                // Move cursor to after the inserted character
                 range.setStartAfter(node);
                 range.setEndAfter(node);
                 sel.removeAllRanges();
                 sel.addRange(range);
                 
-                checkWordWrap();
+                checkHardWordWrap();
             }
         }
 
-        // Logic for 40-cell word wrap
-        function checkWordWrap() {
-            const selection = window.getSelection();
-            if (!selection.rangeCount) return;
-
+        function checkHardWordWrap() {
             const text = editor.innerText;
             const lines = text.split('\n');
-            let cursorOffset = getCursorCharacterOffsetWithin(editor);
-            
-            // Check only the line currently being typed
-            let currentLineIndex = text.substring(0, cursorOffset).split('\n').length - 1;
-            let currentLine = lines[currentLineIndex];
+            let modified = false;
 
-            if (currentLine && currentLine.length > 40) {
-                const lastSpace = currentLine.lastIndexOf('\u2800');
-                
-                if (lastSpace !== -1 && lastSpace > 0) {
-                    // Wrap at the last space
-                    let textBefore = lines.slice(0, currentLineIndex).join('\n');
-                    if (textBefore) textBefore += '\n';
-                    
-                    let lineBeforeSpace = currentLine.substring(0, lastSpace);
-                    let lineAfterSpace = currentLine.substring(lastSpace + 1);
-                    let textAfter = lines.slice(currentLineIndex + 1).join('\n');
-
-                    editor.innerText = textBefore + lineBeforeSpace + '\n' + lineAfterSpace + (textAfter ? '\n' + textAfter : '');
-                } else {
-                    // Hard break if no space exists
-                    editor.innerText = text.slice(0, cursorOffset - 1) + '\n' + text.slice(cursorOffset - 1);
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].length > 40) {
+                    const lastSpace = lines[i].lastIndexOf('\u2800', 40);
+                    if (lastSpace !== -1) {
+                        // Break at the last space before char 40
+                        const lineStart = lines[i].substring(0, lastSpace);
+                        const lineRest = lines[i].substring(lastSpace + 1);
+                        lines[i] = lineStart;
+                        lines.splice(i + 1, 0, lineRest);
+                    } else {
+                        // Hard break at 40 if no space found
+                        const lineStart = lines[i].substring(0, 40);
+                        const lineRest = lines[i].substring(40);
+                        lines[i] = lineStart;
+                        lines.splice(i + 1, 0, lineRest);
+                    }
+                    modified = true;
                 }
-                restoreCursor(cursorOffset + 1);
+            }
+
+            if (modified) {
+                // Save cursor position roughly
+                const offset = getCursorOffset(editor);
+                editor.innerText = lines.join('\n');
+                setCursorOffset(editor, offset);
             }
         }
 
-        // Helper to keep cursor in place after innerText manipulation
-        function getCursorCharacterOffsetWithin(element) {
-            var caretOffset = 0;
-            var doc = element.ownerDocument || element.document;
-            var win = doc.defaultView || doc.parentWindow;
-            var sel = win.getSelection();
-            if (sel.rangeCount > 0) {
-                var range = win.getSelection().getRangeAt(0);
-                var preCaretRange = range.cloneRange();
-                preCaretRange.selectNodeContents(element);
-                preCaretRange.setEnd(range.endContainer, range.endOffset);
-                caretOffset = preCaretRange.toString().length;
-            }
-            return caretOffset;
+        function getCursorOffset(el) {
+            const sel = window.getSelection();
+            const range = sel.getRangeAt(0);
+            const preRange = range.cloneRange();
+            preRange.selectNodeContents(el);
+            preRange.setEnd(range.endContainer, range.endOffset);
+            return preRange.toString().length;
         }
 
-        function restoreCursor(offset) {
+        function setCursorOffset(el, offset) {
             const range = document.createRange();
             const sel = window.getSelection();
-            let currentPath = 0;
-            
-            function traverse(node) {
+            let charCount = 0;
+            const nodeStack = [el];
+            while (nodeStack.length > 0) {
+                const node = nodeStack.pop();
                 if (node.nodeType === 3) {
-                    if (currentPath + node.length >= offset) {
-                        range.setStart(node, offset - currentPath);
-                        return true;
+                    const nextCount = charCount + node.length;
+                    if (offset <= nextCount) {
+                        range.setStart(node, offset - charCount);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        return;
                     }
-                    currentPath += node.length;
+                    charCount = nextCount;
                 } else {
-                    for (let child of node.childNodes) {
-                        if (traverse(child)) return true;
+                    for (let i = node.childNodes.length - 1; i >= 0; i--) {
+                        nodeStack.push(node.childNodes[i]);
                     }
                 }
-                return false;
             }
-            
-            traverse(editor);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
         }
 
-        // Mirror and RTL flip for the Slate
         function flipCell(char) {
             let code = char.charCodeAt(0) - 0x2800;
             if (code < 0 || code > 255) return char;
-
             let flipped = 0;
-            if (code & 0x01) flipped |= 0x08; // 1 -> 4
-            if (code & 0x02) flipped |= 0x10; // 2 -> 5
-            if (code & 0x04) flipped |= 0x20; // 3 -> 6
-            if (code & 0x08) flipped |= 0x01; // 4 -> 1
-            if (code & 0x10) flipped |= 0x02; // 5 -> 2
-            if (code & 0x20) flipped |= 0x04; // 6 -> 3
+            if (code & 0x01) flipped |= 0x08; 
+            if (code & 0x02) flipped |= 0x10; 
+            if (code & 0x04) flipped |= 0x20; 
+            if (code & 0x08) flipped |= 0x01; 
+            if (code & 0x10) flipped |= 0x02; 
+            if (code & 0x20) flipped |= 0x04; 
             return String.fromCharCode(0x2800 + flipped);
         }
 
         function activateSlateView() {
             const lines = editor.innerText.split('\n');
             const processed = lines.map(line => {
-                // Flip bits then reverse string for RTL
+                // Flip bits and then reverse order for RTL
                 return line.split('').map(flipCell).reverse().join('');
             });
             slateView.innerText = processed.join('\n');

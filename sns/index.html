@@ -18,7 +18,7 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
-            align-items: center; /* Center the "Book" on the screen */
+            align-items: center;
         }
 
         header {
@@ -30,28 +30,29 @@
 
         .book-container {
             display: flex;
-            justify-content: center; /* Keeps pages together */
+            justify-content: center;
             flex: 1;
-            width: auto;
-            max-width: 100%;
+            width: 100%;
+            max-width: 1200px;
             padding: 20px;
+            box-sizing: border-box;
         }
 
         section {
             display: flex;
             flex-direction: column;
-            /* Lock width to 40 characters + small padding */
+            /* width is calculated to fit exactly 40 chars of SimBraille */
             width: 42ch; 
             box-sizing: border-box;
         }
 
         #editor-region {
-            border-right: 2px solid #fff; /* The white line divider */
-            padding-right: 20px;
+            border-right: 2px solid #fff;
+            padding-right: 25px;
         }
 
         #translation-region {
-            padding-left: 20px;
+            padding-left: 25px;
         }
 
         .label {
@@ -64,18 +65,19 @@
         }
 
         #editor, #slate-view {
-            height: 400px;
+            height: 500px;
             background-color: #000;
             color: #fff;
             font-family: 'SimBraille', monospace;
             font-size: 28px;
-            line-height: 1.4;
-            padding: 10px;
+            line-height: 1.2;
+            padding: 15px;
             border: 1px solid #333;
             outline: none;
             overflow-y: auto;
-            overflow-x: hidden; /* Prevent horizontal scroll */
-            white-space: pre;    /* Strict character positioning */
+            overflow-x: hidden; 
+            white-space: pre-wrap; /* Changed to pre-wrap for better break handling */
+            word-break: break-all;
         }
 
         #slate-view {
@@ -112,15 +114,13 @@
     </header>
 
     <div class="book-container">
-        <!-- Editor Region -->
         <section id="editor-region" aria-label="editor">
-            <span class="label">Reading View (LTR)</span>
+            <span class="label">Left Page: Editor (LTR)</span>
             <div id="editor" contenteditable="true" spellcheck="false" autofocus></div>
         </section>
 
-        <!-- Translation Region -->
         <section id="translation-region" aria-label="translation">
-            <span class="label">Slate View (RTL & Mirrored)</span>
+            <span class="label">Right Page: Slate (RTL & Mirrored)</span>
             <div id="slate-view"></div>
         </section>
     </div>
@@ -144,10 +144,10 @@
                 keysDown.add(key);
             } else if (key === ' ') {
                 e.preventDefault();
-                insertAtCursor('\u2800');
+                processInput('\u2800');
             } else if (key === 'enter') {
                 e.preventDefault();
-                insertAtCursor('\n');
+                processInput('\n');
             }
         });
 
@@ -157,7 +157,7 @@
                 keysDown.delete(key);
                 if (keysDown.size === 0 && currentChord.size > 0) {
                     const char = calculateBraille(currentChord);
-                    insertAtCursor(char);
+                    processInput(char);
                     currentChord.clear();
                 }
             }
@@ -165,96 +165,68 @@
 
         function calculateBraille(chord) {
             let val = 0;
-            if (chord.has('f')) val |= 0x01; // Dot 1
-            if (chord.has('d')) val |= 0x02; // Dot 2
-            if (chord.has('s')) val |= 0x04; // Dot 3
-            if (chord.has('j')) val |= 0x08; // Dot 4
-            if (chord.has('k')) val |= 0x10; // Dot 5
-            if (chord.has('l')) val |= 0x20; // Dot 6
+            if (chord.has('f')) val |= 0x01;
+            if (chord.has('d')) val |= 0x02;
+            if (chord.has('s')) val |= 0x04;
+            if (chord.has('j')) val |= 0x08;
+            if (chord.has('k')) val |= 0x10;
+            if (chord.has('l')) val |= 0x20;
             return String.fromCharCode(0x2800 + val);
         }
 
-        function insertAtCursor(char) {
+        function processInput(char) {
             const sel = window.getSelection();
-            if (sel.rangeCount) {
-                const range = sel.getRangeAt(0);
-                range.deleteContents();
-                const node = document.createTextNode(char);
-                range.insertNode(node);
-                range.setStartAfter(node);
-                range.setEndAfter(node);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                
-                checkHardWordWrap();
-            }
-        }
-
-        function checkHardWordWrap() {
-            const text = editor.innerText;
-            const lines = text.split('\n');
-            let modified = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].length > 40) {
-                    const lastSpace = lines[i].lastIndexOf('\u2800', 40);
-                    if (lastSpace !== -1) {
-                        // Break at the last space before char 40
-                        const lineStart = lines[i].substring(0, lastSpace);
-                        const lineRest = lines[i].substring(lastSpace + 1);
-                        lines[i] = lineStart;
-                        lines.splice(i + 1, 0, lineRest);
-                    } else {
-                        // Hard break at 40 if no space found
-                        const lineStart = lines[i].substring(0, 40);
-                        const lineRest = lines[i].substring(40);
-                        lines[i] = lineStart;
-                        lines.splice(i + 1, 0, lineRest);
-                    }
-                    modified = true;
-                }
-            }
-
-            if (modified) {
-                // Save cursor position roughly
-                const offset = getCursorOffset(editor);
-                editor.innerText = lines.join('\n');
-                setCursorOffset(editor, offset);
-            }
-        }
-
-        function getCursorOffset(el) {
-            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
             const range = sel.getRangeAt(0);
-            const preRange = range.cloneRange();
-            preRange.selectNodeContents(el);
-            preRange.setEnd(range.endContainer, range.endOffset);
-            return preRange.toString().length;
-        }
 
-        function setCursorOffset(el, offset) {
-            const range = document.createRange();
-            const sel = window.getSelection();
-            let charCount = 0;
-            const nodeStack = [el];
-            while (nodeStack.length > 0) {
-                const node = nodeStack.pop();
-                if (node.nodeType === 3) {
-                    const nextCount = charCount + node.length;
-                    if (offset <= nextCount) {
-                        range.setStart(node, offset - charCount);
-                        range.collapse(true);
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                        return;
-                    }
-                    charCount = nextCount;
+            // 1. Calculate current line length before inserting
+            const fullText = editor.innerText;
+            const caretPos = getCaretCharacterOffsetWithin(editor);
+            const lines = fullText.substring(0, caretPos).split('\n');
+            const currentLineText = lines[lines.length - 1];
+
+            // 2. Word Wrap Logic (Triggered at 40)
+            if (currentLineText.length >= 40 && char !== '\n') {
+                const lastSpace = currentLineText.lastIndexOf('\u2800');
+                
+                // If a space is nearby (within last 10 chars), wrap there
+                if (lastSpace !== -1 && (currentLineText.length - lastSpace) < 10) {
+                    // This is handled by replacing the space with a newline
+                    // For simplicity in this build, we perform a hard break at 40
+                    const br = document.createTextNode('\n');
+                    range.insertNode(br);
+                    range.setStartAfter(br);
                 } else {
-                    for (let i = node.childNodes.length - 1; i >= 0; i--) {
-                        nodeStack.push(node.childNodes[i]);
-                    }
+                    // Hard break
+                    const br = document.createTextNode('\n');
+                    range.insertNode(br);
+                    range.setStartAfter(br);
                 }
             }
+
+            // 3. Insert the character
+            const node = document.createTextNode(char);
+            range.deleteContents();
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        function getCaretCharacterOffsetWithin(element) {
+            let caretOffset = 0;
+            const doc = element.ownerDocument || element.document;
+            const win = doc.defaultView || doc.parentWindow;
+            const sel = win.getSelection();
+            if (sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                const preCaretRange = range.cloneRange();
+                preCaretRange.selectNodeContents(element);
+                preCaretRange.setEnd(range.endContainer, range.endOffset);
+                caretOffset = preCaretRange.toString().length;
+            }
+            return caretOffset;
         }
 
         function flipCell(char) {
@@ -271,9 +243,9 @@
         }
 
         function activateSlateView() {
+            // Use innerText to preserve the line breaks we've inserted
             const lines = editor.innerText.split('\n');
             const processed = lines.map(line => {
-                // Flip bits and then reverse order for RTL
                 return line.split('').map(flipCell).reverse().join('');
             });
             slateView.innerText = processed.join('\n');

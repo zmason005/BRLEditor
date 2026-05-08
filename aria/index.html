@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille BRF Editor - Technical Gutter</title>
+    <title>Braille BRF Editor - Auto-Gutter</title>
     <link rel="stylesheet" href="braille-editor.css">
     <style>
         body { overflow-x: hidden; width: 100vw; background-color: #000; color: #fff; }
@@ -26,13 +26,13 @@
 <body>
 
     <div class="top-section">
-        <h2>Braille Editor: Technical Gutter</h2>
-        <p>Gutter digits are Prepended; Content limit remains 40 cells.</p>
+        <h2>Braille Editor: Auto-Gutter</h2>
+        <p>Line numbers populate automatically on every new line.</p>
     </div>
 
     <div class="controls">
         <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
-        <button class="btn-format" onclick="formatWithGutter()">Format for BRF</button>
+        <button class="btn-format" onclick="manualReflow()">Manual Reflow</button>
         <button class="btn-clear" onclick="clearEditor()">Clear</button>
     </div>
 
@@ -44,7 +44,6 @@
         const navAnnouncer = document.getElementById('nav-announcer');
         let lastLineIndex = -1;
 
-        // Custom mapping for technical braille digits
         const brailleMap = {
             '1': '⠂', '2': '⠆', '3': '⠒', '4': '⠲', '5': '⠢',
             '6': '⠖', '7': '⠶', '8': '⠦', '9': '⠔', '0': '⠴'
@@ -52,40 +51,66 @@
 
         function getBrailleGutter(index) {
             const numStr = (index + 1).toString();
-            // Map each digit to your technical braille set (no number sign, no space)
             return numStr.split('').map(d => brailleMap[d]).join('');
         }
 
         function scaleBrailleFont() {
             const lines = editor.value.split('\n');
-            const maxLineNum = lines.length;
-            // Gutter length is just the number of digits in the line count
-            const maxGutterLen = maxLineNum.toString().length;
+            const maxGutterLen = lines.length.toString().length;
             const totalCells = 40 + maxGutterLen;
-
             const style = window.getComputedStyle(editor);
             const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
             const availableWidth = editor.clientWidth - padding;
 
             if (availableWidth > 0) {
-                // Adjusting ratio to ensure all cells (Gutter + 40) fit 90vw
                 const fontSize = (availableWidth / totalCells) * 1.66; 
                 editor.style.fontSize = fontSize + 'px';
             }
         }
 
-        function formatWithGutter() {
+        // Logic to ensure the gutter is present on the current line
+        function ensureGutter() {
+            const pos = editor.selectionStart;
+            const lines = editor.value.split('\n');
+            const lineIndex = editor.value.substring(0, pos).split('\n').length - 1;
+            const currentLineText = lines[lineIndex];
+            const gutter = getBrailleGutter(lineIndex);
+
+            // If the line is empty or missing the technical digit prefix, inject it
+            if (!currentLineText.startsWith(gutter)) {
+                const before = lines.slice(0, lineIndex).join('\n');
+                const after = lines.slice(lineIndex + 1).join('\n');
+                
+                // Prepend gutter to the current line content
+                lines[lineIndex] = gutter + currentLineText.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]*/, '');
+                
+                const newContent = lines.join('\n');
+                const diff = newContent.length - editor.value.length;
+                
+                editor.value = newContent;
+                editor.setSelectionRange(pos + diff, pos + diff);
+            }
+        }
+
+        editor.addEventListener('input', function(e) {
+            // Handle simulated Enter key
+            if (this.value.includes('Ê')) {
+                this.value = this.value.replace(/Ê/g, '\n');
+            }
+
+            // If a newline was just added, ensure the next line gets a gutter immediately
+            ensureGutter();
+            
+            localStorage.setItem('braille_editor_v1', this.value);
+            scaleBrailleFont();
+        });
+
+        // Reflow is still useful for fixing bulk text or re-indexing after large deletes
+        function manualReflow() {
             const startPos = editor.selectionStart;
-            
-            // 1. Strip existing gutters (removes any leading string of your custom braille digits)
-            let rawLines = editor.value.split('\n').map(line => {
-                return line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-            });
-            
-            // Join into one string to re-wrap correctly
+            let rawLines = editor.value.split('\n').map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, ''));
             let rawContent = rawLines.join(' ').replace(/\s+/g, ' ').trim();
 
-            // 2. Wrap text at exactly 40
             let words = rawContent.split(' ');
             let wrappedLines = [];
             let currentLine = "";
@@ -100,12 +125,7 @@
             });
             if (currentLine) wrappedLines.push(currentLine);
 
-            // 3. Re-apply Technical Gutters with NO space
-            const finalContent = wrappedLines.map((text, idx) => {
-                return getBrailleGutter(idx) + text;
-            }).join('\n');
-
-            editor.value = finalContent;
+            editor.value = wrappedLines.map((text, idx) => getBrailleGutter(idx) + text).join('\n');
             localStorage.setItem('braille_editor_v1', editor.value);
             
             window.requestAnimationFrame(() => {
@@ -115,47 +135,31 @@
             });
         }
 
-        function refreshBrailleFocus() {
-            if (document.activeElement === editor) {
-                const pos = editor.selectionStart;
-                editor.setAttribute('aria-live', 'polite');
-                window.requestAnimationFrame(() => {
-                    editor.setSelectionRange(pos, pos);
-                });
-            }
-        }
-
         document.addEventListener('selectionchange', () => {
             if (document.activeElement === editor) {
-                const text = editor.value;
                 const pos = editor.selectionStart;
-                const currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+                const currentLineIndex = editor.value.substring(0, pos).split('\n').length - 1;
                 
                 if (currentLineIndex !== lastLineIndex) {
-                    // Update line number in the accessibility tree
                     editor.setAttribute('aria-label', `Line ${currentLineIndex + 1}`);
                     lastLineIndex = currentLineIndex;
+                    // When moving to a new empty line via arrows/routing buttons, ensure gutter exists
+                    ensureGutter();
                 }
-                refreshBrailleFocus();
             }
-        });
-
-        editor.addEventListener('input', function() {
-            if (this.value.includes('Ê')) {
-                this.value = this.value.replace(/Ê/g, '\n');
-            }
-            localStorage.setItem('braille_editor_v1', this.value);
-            scaleBrailleFont();
         });
 
         window.onload = () => {
             const saved = localStorage.getItem('braille_editor_v1');
-            if (saved) editor.value = saved;
+            if (saved) {
+                editor.value = saved;
+            } else {
+                // Initialize first line with gutter
+                editor.value = getBrailleGutter(0);
+            }
             scaleBrailleFont();
             editor.focus();
         };
-
-        window.addEventListener('resize', scaleBrailleFont);
 
         async function copyToClipboard() {
             try {
@@ -165,9 +169,9 @@
 
         function clearEditor() {
             if (confirm("Clear document?")) {
-                editor.value = '';
+                editor.value = getBrailleGutter(0);
                 localStorage.removeItem('braille_editor_v1');
-                lastLineIndex = -1;
+                lastLineIndex = 0;
                 scaleBrailleFont();
                 editor.focus();
             }

@@ -15,6 +15,9 @@ body {
     background-color: #000000;
     color: #ffffff;
     box-sizing: border-box;
+    /* Prevents the entire viewport from shifting horizontally */
+    overflow-x: hidden; 
+    width: 100vw;
 }
 
 .top-section { 
@@ -71,30 +74,31 @@ button:active {
 
 textarea { 
     flex-grow: 1; 
-    width: 100%;
-    /* Responsive font: Scales with viewport width (vw) */
-    font-size: 2.2vw; 
-    /* Clamp: Minimum 12px, preferred 2.2vw, maximum 22px */
-    font-size: clamp(12px, 2.2vw, 22px); 
+    /* Lock width to 90% of the screen */
+    width: 90vw;
+    margin: 0 auto;
+    
+    /* Font is handled dynamically by JS to ensure 40 chars fit */
     font-family: 'SimBraille', 'Courier New', monospace; 
-    padding: 2%;
+    
+    padding: 10px;
     border: 2px solid #ffffff;
-    box-sizing: border-box; /* Crucial: Keeps padding inside the width */
+    box-sizing: border-box; 
     line-height: 1.5;
     white-space: pre;
-    overflow-x: hidden; /* Prevents horizontal shifting/scrolling */
+    
+    /* The Inhibitors */
+    overflow-x: hidden; 
     overflow-y: auto;
     resize: none;
+    
     background-color: #000000;
     color: #ffffff;
     outline: none;
 }
 
-/* Desktop optimization */
-@media (min-width: 1000px) {
-    textarea {
-        max-width: 42ch; /* Limits width to roughly 40-42 braille characters */
-        margin: 0 auto;  /* Centers the editor on large screens */
-        font-size: 20px;
-    }
-}
+/* 
+   Note: Desktop media queries that restricted max-width 
+   have been removed to ensure the 90% width and font-scaling 
+   logic work consistently on laptops and monitors.
+*/

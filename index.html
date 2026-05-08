@@ -41,6 +41,7 @@
 
     <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
     
+    <!-- aria-label is updated dynamically by JS -->
     <textarea id="editor" aria-label="Braille Editor, 40 cells per line" spellcheck="false" wrap="off"></textarea>
 
     <script>
@@ -48,7 +49,6 @@
         const navAnnouncer = document.getElementById('nav-announcer');
         let lastLineIndex = -1;
 
-        // Dynamic Font Scaling: Ensures 40 characters always fit the 90vw width
         function scaleBrailleFont() {
             const style = window.getComputedStyle(editor);
             const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
@@ -60,19 +60,40 @@
             }
         }
 
-        // BRAILLE SYNC: Forces iOS Braille driver to re-scan the cursor position
         function refreshBrailleFocus() {
             if (document.activeElement === editor) {
                 const selection = editor.selectionStart;
-                
-                // Toggle ARIA to 'ping' the Bluetooth Braille driver
                 editor.setAttribute('aria-live', 'polite');
-                
                 window.requestAnimationFrame(() => {
                     editor.setSelectionRange(selection, selection);
-                    // Update label to reflect current line for screen reader tracking
-                    editor.setAttribute('aria-label', `Braille Editor, line ${lastLineIndex + 1}`);
                 });
+            }
+        }
+
+        function announceLine(lineIndex) {
+            const message = `Line ${lineIndex + 1}`;
+            
+            // Clear and Post method: ensures the line number cuts through other speech/braille data
+            navAnnouncer.textContent = '';
+            setTimeout(() => {
+                navAnnouncer.textContent = message;
+            }, 50);
+        }
+
+        function checkLineChange() {
+            const text = editor.value;
+            const pos = editor.selectionStart;
+            const lines = text.split('\n');
+            const currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+
+            if (currentLineIndex !== lastLineIndex) {
+                // 1. Announce via live region
+                announceLine(currentLineIndex);
+                
+                // 2. The Aria-Label Trick: Forces the line number to the front of the Braille/Speech queue
+                editor.setAttribute('aria-label', `Line ${currentLineIndex + 1}`);
+                
+                lastLineIndex = currentLineIndex;
             }
         }
 
@@ -107,29 +128,6 @@
             return wrapped.join('\n');
         }
 
-        function announceLine(lineIndex, lines) {
-            const lineNumber = lineIndex + 1;
-            const charCount = (lines[lineIndex] || "").length;
-            const message = `Line ${lineNumber}, ${charCount} characters`;
-
-            navAnnouncer.textContent = message;
-            // Briefly clear it to allow re-announcement
-            setTimeout(() => { navAnnouncer.textContent = ''; }, 2000);
-        }
-
-        function checkLineChange() {
-            const text = editor.value;
-            const pos = editor.selectionStart;
-            const lines = text.split('\n');
-            const currentLineIndex = text.substring(0, pos).split('\n').length - 1;
-
-            if (currentLineIndex !== lastLineIndex) {
-                announceLine(currentLineIndex, lines);
-                lastLineIndex = currentLineIndex;
-            }
-        }
-
-        // Listen for cursor movements from Braille routing buttons
         document.addEventListener('selectionchange', () => {
             if (document.activeElement === editor) {
                 checkLineChange();
@@ -211,6 +209,8 @@
             if (confirm("Delete saved progress and clear document?")) {
                 editor.value = '';
                 localStorage.removeItem('braille_editor_v1');
+                lastLineIndex = -1;
+                editor.setAttribute('aria-label', 'Braille Editor, 40 cells per line');
                 editor.focus();
                 refreshBrailleFocus();
             }

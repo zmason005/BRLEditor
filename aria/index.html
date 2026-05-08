@@ -2,156 +2,176 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Braille BRF Editor - ARIA Mode</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Braille BRF Editor - Technical Gutter</title>
+    <link rel="stylesheet" href="braille-editor.css">
     <style>
-        body { 
-            font-family: -apple-system, sans-serif; 
-            max-width: 800px; 
-            margin: 20px auto; 
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            height: 90vh;
-        }
-        
-        .top-section { flex-shrink: 0; }
-        .controls { margin: 15px 0; }
-        
-        button {
-            padding: 12px 20px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-right: 10px;
-            border-radius: 4px;
-            border: 1px solid #333;
-        }
-
-        .btn-copy { background-color: #0056b3; color: white; }
-        .btn-clear { background-color: #f5f5f5; color: #333; }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            border: 0;
-        }
-
-        textarea { 
-            flex-grow: 1; 
-            width: 100%; 
-            max-width: 40ch;
-            font-family: 'Courier New', monospace; 
-            font-size: 1.25rem;
-            padding: 15px;
-            border: 2px solid #333;
-            box-sizing: border-box;
-            line-height: 1.4;
+        body { overflow-x: hidden; width: 100vw; background-color: #000; color: #fff; }
+        #editor {
+            width: 90vw !important;
+            margin: 0 auto !important;
+            display: block;
+            overflow-x: hidden !important; 
             white-space: pre;
-            overflow-x: auto;
-            resize: none;
+            word-wrap: normal; 
+            box-sizing: border-box;
+            padding: 10px;
+            font-family: 'SimBraille', 'Courier New', monospace;
+            line-height: 1.5;
+            border: 2px solid #fff;
+            outline: none;
         }
     </style>
 </head>
 <body>
 
     <div class="top-section">
-        <h2>Braille Editor (ARIA Mode)</h2>
-        <p>Speech focused on line/char count. Braille display support active.</p>
+        <h2>Braille Editor: Technical Gutter</h2>
+        <p>Gutter digits are Prepended; Content limit remains 40 cells.</p>
     </div>
 
     <div class="controls">
         <button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
-        <button class="btn-clear" onclick="clearEditor()">Clear Document</button>
+        <button class="btn-format" onclick="formatWithGutter()">Format for BRF</button>
+        <button class="btn-clear" onclick="clearEditor()">Clear</button>
     </div>
 
-    <div id="aria-announcer" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
-
-    <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
-    
-    <textarea 
-        id="editor" 
-        role="application" 
-        aria-roledescription="Braille Editor"
-        aria-label="Braille Editor, 40 cells per line" 
-        spellcheck="false"></textarea>
+    <div id="nav-announcer" class="sr-only" aria-live="assertive"></div>
+    <textarea id="editor" aria-label="Braille Editor" spellcheck="false" wrap="off"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
-        const announcer = document.getElementById('aria-announcer');
-        let lastLineNumber = -1; 
+        const navAnnouncer = document.getElementById('nav-announcer');
+        let lastLineIndex = -1;
 
-        window.onload = () => {
-            const savedText = localStorage.getItem('braille_editor_v1');
-            if (savedText) {
-                editor.value = savedText;
-                editor.selectionStart = editor.selectionEnd = editor.value.length;
-            }
-            editor.focus();
+        // Custom mapping for technical braille digits
+        const brailleMap = {
+            '1': '⠂', '2': '⠆', '3': '⠒', '4': '⠲', '5': '⠢',
+            '6': '⠖', '7': '⠶', '8': '⠦', '9': '⠔', '0': '⠴'
         };
 
-        // Custom focus/blur announcements
-        editor.addEventListener('focus', () => {
-            announcer.textContent = "Entering editor";
-            // Delay navigation check so focus announcement finishes
-            setTimeout(handleNavigation, 500);
-        });
+        function getBrailleGutter(index) {
+            const numStr = (index + 1).toString();
+            // Map each digit to your technical braille set (no number sign, no space)
+            return numStr.split('').map(d => brailleMap[d]).join('');
+        }
 
-        editor.addEventListener('blur', () => {
-            announcer.textContent = "Exiting editor";
-        });
+        function scaleBrailleFont() {
+            const lines = editor.value.split('\n');
+            const maxLineNum = lines.length;
+            // Gutter length is just the number of digits in the line count
+            const maxGutterLen = maxLineNum.toString().length;
+            const totalCells = 40 + maxGutterLen;
 
-        function handleNavigation() {
-            const text = editor.value;
-            const pos = editor.selectionStart;
-            const lines = text.split('\n');
-            let currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+            const style = window.getComputedStyle(editor);
+            const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+            const availableWidth = editor.clientWidth - padding;
+
+            if (availableWidth > 0) {
+                // Adjusting ratio to ensure all cells (Gutter + 40) fit 90vw
+                const fontSize = (availableWidth / totalCells) * 1.66; 
+                editor.style.fontSize = fontSize + 'px';
+            }
+        }
+
+        function formatWithGutter() {
+            const startPos = editor.selectionStart;
             
-            // Only announce if the line has actually changed to keep it clean
-            if (currentLineIndex !== lastLineNumber) {
-                const lineLength = (lines[currentLineIndex] || "").length;
-                announcer.textContent = `Line ${currentLineIndex + 1}, ${lineLength} characters`;
-                lastLineNumber = currentLineIndex;
+            // 1. Strip existing gutters (removes any leading string of your custom braille digits)
+            let rawLines = editor.value.split('\n').map(line => {
+                return line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
+            });
+            
+            // Join into one string to re-wrap correctly
+            let rawContent = rawLines.join(' ').replace(/\s+/g, ' ').trim();
+
+            // 2. Wrap text at exactly 40
+            let words = rawContent.split(' ');
+            let wrappedLines = [];
+            let currentLine = "";
+
+            words.forEach(word => {
+                if ((currentLine + word).length <= 40) {
+                    currentLine += (currentLine === "" ? "" : " ") + word;
+                } else {
+                    wrappedLines.push(currentLine);
+                    currentLine = word;
+                }
+            });
+            if (currentLine) wrappedLines.push(currentLine);
+
+            // 3. Re-apply Technical Gutters with NO space
+            const finalContent = wrappedLines.map((text, idx) => {
+                return getBrailleGutter(idx) + text;
+            }).join('\n');
+
+            editor.value = finalContent;
+            localStorage.setItem('braille_editor_v1', editor.value);
+            
+            window.requestAnimationFrame(() => {
+                editor.focus();
+                editor.setSelectionRange(startPos, startPos);
+                scaleBrailleFont();
+            });
+        }
+
+        function refreshBrailleFocus() {
+            if (document.activeElement === editor) {
+                const pos = editor.selectionStart;
+                editor.setAttribute('aria-live', 'polite');
+                window.requestAnimationFrame(() => {
+                    editor.setSelectionRange(pos, pos);
+                });
             }
         }
 
         document.addEventListener('selectionchange', () => {
-            if (document.activeElement === editor) handleNavigation();
+            if (document.activeElement === editor) {
+                const text = editor.value;
+                const pos = editor.selectionStart;
+                const currentLineIndex = text.substring(0, pos).split('\n').length - 1;
+                
+                if (currentLineIndex !== lastLineIndex) {
+                    // Update line number in the accessibility tree
+                    editor.setAttribute('aria-label', `Line ${currentLineIndex + 1}`);
+                    lastLineIndex = currentLineIndex;
+                }
+                refreshBrailleFocus();
+            }
         });
 
         editor.addEventListener('input', function() {
-            // Logic for 'Ê' as Enter key
             if (this.value.includes('Ê')) {
-                const start = this.selectionStart;
                 this.value = this.value.replace(/Ê/g, '\n');
-                this.selectionStart = this.selectionEnd = start;
             }
             localStorage.setItem('braille_editor_v1', this.value);
+            scaleBrailleFont();
         });
 
+        window.onload = () => {
+            const saved = localStorage.getItem('braille_editor_v1');
+            if (saved) editor.value = saved;
+            scaleBrailleFont();
+            editor.focus();
+        };
+
+        window.addEventListener('resize', scaleBrailleFont);
+
         async function copyToClipboard() {
-            if (!editor.value) return;
             try {
                 await navigator.clipboard.writeText(editor.value);
-                announcer.textContent = "All text copied to clipboard";
-            } catch (err) {
-                announcer.textContent = "Failed to copy text";
-            }
+            } catch (err) {}
         }
 
         function clearEditor() {
-            if (confirm("Delete saved progress and clear document?")) {
+            if (confirm("Clear document?")) {
                 editor.value = '';
                 localStorage.removeItem('braille_editor_v1');
-                announcer.textContent = "Document cleared";
+                lastLineIndex = -1;
+                scaleBrailleFont();
                 editor.focus();
             }
         }
     </script>
 </body>
 </html>
-

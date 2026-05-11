@@ -4,12 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Braille Editor - Guarded In-Stream</title>
-    <link rel="stylesheet" href="braille-editor.css">
     <style>
-        body { background-color: #000; color: #fff; font-family: 'SimBraille', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        body { 
+            background-color: #000; 
+            color: #fff; 
+            font-family: 'SimBraille', monospace; 
+            margin: 0; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            overflow-x: hidden;
+        }
         #editor {
-            width: 90vw;
-            height: 70vh;
+            width: 95vw;
+            height: 75vh;
             background: #111;
             color: #fff;
             border: 2px solid #fff;
@@ -21,9 +30,18 @@
             white-space: pre;
             overflow-wrap: normal;
             overflow-x: hidden;
+            box-sizing: border-box;
         }
         .controls { margin-bottom: 15px; display: flex; gap: 10px; }
-        button { padding: 10px; background: #333; color: #fff; border: 1px solid #fff; cursor: pointer; }
+        button { 
+            padding: 10px 20px; 
+            background: #333; 
+            color: #fff; 
+            border: 1px solid #fff; 
+            cursor: pointer; 
+            font-family: sans-serif;
+        }
+        button:hover { background: #555; }
     </style>
 </head>
 <body>
@@ -43,18 +61,24 @@
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        // Logic to strip digits and re-number everything
         function refreshNumbers() {
-            const pos = editor.selectionStart;
-            let lines = editor.value.split('\n');
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
             
+            let lines = editor.value.split('\n');
             let newLines = lines.map((line, i) => {
+                // Strip existing braille numbers from the start of the line
                 let clean = line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
                 return getGutter(i) + clean;
             });
 
-            editor.value = newLines.join('\n');
-            editor.setSelectionRange(pos, pos);
+            const newValue = newLines.join('\n');
+            
+            // Only update the value if it has actually changed to prevent cursor jitter
+            if (editor.value !== newValue) {
+                editor.value = newValue;
+                editor.setSelectionRange(start, end);
+            }
             scaleFont();
         }
 
@@ -62,23 +86,22 @@
             const lines = editor.value.split('\n');
             const maxGutter = lines.length.toString().length;
             const totalCells = 40 + maxGutter;
-            const fontSize = (editor.clientWidth / totalCells) * 1.6;
+            // Adjusts font size so 40 cells + gutter always fit the screen width
+            const fontSize = (editor.clientWidth / totalCells) * 0.95;
             editor.style.fontSize = fontSize + 'px';
         }
 
-        // The "Invisible Wall" - Prevents cursor from entering the digit zone
         function enforceGhostZone() {
             const pos = editor.selectionStart;
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
             const textBefore = editor.value.substring(0, pos);
             const linesBefore = textBefore.split('\n');
             const currentLineIdx = linesBefore.length - 1;
             const gutter = getGutter(currentLineIdx);
             
-            // Calculate start position of the current line in the big string
-            const lineStartPos = textBefore.lastIndexOf('\n') + 1;
             const relativePos = pos - lineStartPos;
 
-            // If cursor is inside the gutter length, snap it to the end of the gutter
+            // If cursor is inside the gutter, snap it to the start of the content area
             if (relativePos < gutter.length) {
                 const newPos = lineStartPos + gutter.length;
                 editor.setSelectionRange(newPos, newPos);
@@ -87,41 +110,30 @@
 
         editor.addEventListener('keydown', (e) => {
             const pos = editor.selectionStart;
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
             const linesBefore = editor.value.substring(0, pos).split('\n');
             const currentLineIdx = linesBefore.length - 1;
             const gutter = getGutter(currentLineIdx);
-            const lineStartPos = editor.value.substring(0, pos).lastIndexOf('\n') + 1;
             const relativePos = pos - lineStartPos;
 
-            // Handle Backspace at the boundary (Standard Merge Scenario)
-            if (e.key === 'Backspace' && relativePos === gutter.length) {
-                e.preventDefault();
-                if (currentLineIdx > 0) {
-                    const lines = editor.value.split('\n');
-                    const contentToMove = lines[currentLineIdx].substring(gutter.length);
-                    
-                    // Remove current line and append its text to the one above
-                    lines.splice(currentLineIdx, 1);
-                    const prevLineGutter = getGutter(currentLineIdx - 1);
-                    const targetPos = editor.value.substring(0, lineStartPos - 1).length;
-                    
-                    lines[currentLineIdx - 1] += contentToMove;
-                    editor.value = lines.join('\n');
-                    
-                    // Put cursor exactly where the merge happened
-                    editor.setSelectionRange(targetPos, targetPos);
-                    refreshNumbers();
+            // Handle Backspace at the boundary to prevent deleting the gutter
+            if (e.key === 'Backspace' && relativePos <= gutter.length) {
+                if (currentLineIdx === 0 || relativePos < gutter.length) {
+                    e.preventDefault();
                 }
+                // Allowed if relativePos === gutter.length to allow merging with previous line
             }
         });
 
         editor.addEventListener('input', (e) => {
-            // Handle simulated Enter (Ê)
+            // Simulated Enter support
             if (editor.value.includes('Ê')) {
+                const pos = editor.selectionStart;
                 editor.value = editor.value.replace(/Ê/g, '\n');
+                editor.setSelectionRange(pos, pos);
             }
 
-            // Forced 40-character wrap (Option A: Silent)
+            // 40-character wrapping logic
             let lines = editor.value.split('\n');
             let changed = false;
 
@@ -138,7 +150,8 @@
 
                     lines[i] = gutter + keep;
                     if (lines[i+1] !== undefined) {
-                        lines[i+1] = move + " " + lines[i+1].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
+                        let nextContent = lines[i+1].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
+                        lines[i+1] = move + " " + nextContent;
                     } else {
                         lines.push(move);
                     }
@@ -147,17 +160,20 @@
             }
 
             if (changed) {
-                const pos = editor.selectionStart;
+                const start = editor.selectionStart;
                 editor.value = lines.join('\n');
-                editor.setSelectionRange(pos, pos);
+                editor.setSelectionRange(start, start);
             }
             
             refreshNumbers();
             localStorage.setItem('braille_editor_v1', editor.value);
         });
 
-        // Ensure clicking or arrowing always hits the "Ghost Zone" wall
-        editor.addEventListener('click', enforceGhostZone);
+        // Ensure clicking or navigating doesn't land in the line number zone
+        editor.addEventListener('click', () => {
+            setTimeout(enforceGhostZone, 10);
+        });
+        
         editor.addEventListener('keyup', (e) => {
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) {
                 enforceGhostZone();
@@ -173,21 +189,28 @@
             }
             refreshNumbers();
             editor.focus();
+            // Start cursor after the first gutter
+            const startPos = getGutter(0).length;
+            editor.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
-            // Strips all technical digits before copying
             const clean = editor.value.split('\n')
                 .map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, ''))
                 .join('\n');
-            navigator.clipboard.writeText(clean);
+            navigator.clipboard.writeText(clean).then(() => {
+                alert("Clean text copied to clipboard!");
+            });
         }
 
         function clearEditor() {
             if (confirm("Clear all?")) {
-                editor.value = getGutter(0);
                 localStorage.removeItem('braille_editor_v1');
+                editor.value = getGutter(0);
                 refreshNumbers();
+                const startPos = getGutter(0).length;
+                editor.setSelectionRange(startPos, startPos);
+                editor.focus();
             }
         }
     </script>

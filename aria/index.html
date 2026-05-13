@@ -3,25 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Fixed Guarded In-Stream</title>
+    <title>Braille Editor - Guarded In-Stream</title>
     <style>
-        /* Root Reset to prevent "White Frames" */
-        html, body { background-color: #000; margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
         body { 
+            background-color: #000; 
             color: #fff; 
             font-family: 'SimBraille', monospace; 
+            margin: 0; 
+            padding: 15px; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            padding-top: 20px;
+        }
+        .instructions {
+            font-family: sans-serif;
+            font-size: 14px;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #aaa;
         }
         #editor {
-            width: 90vw; /* Standardized to 90% per requirements */
-            height: 70vh;
+            width: 95vw;
+            height: 65vh;
             background: #111;
             color: #fff;
             border: 2px solid #fff;
             padding: 15px;
+            font-size: 24px;
             line-height: 1.6;
             outline: none;
             resize: none;
@@ -30,43 +38,84 @@
             overflow-x: hidden;
             box-sizing: border-box;
         }
-        .controls { margin-bottom: 15px; display: flex; gap: 10px; }
-        button { padding: 10px 20px; background: #333; color: #fff; border: 1px solid #fff; cursor: pointer; }
+        .controls { 
+            margin-bottom: 10px; 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 10px; 
+            justify-content: center;
+            align-items: center;
+        }
+        button, label { 
+            padding: 8px 15px; 
+            background: #333; 
+            color: #fff; 
+            border: 1px solid #fff; 
+            cursor: pointer; 
+            font-family: monospace;
+            font-size: 16px;
+        }
+        input[type="number"] {
+            width: 50px;
+            background: #222;
+            color: #fff;
+            border: 1px solid #fff;
+            padding: 5px;
+            text-align: center;
+        }
+        .toggle-group { display: flex; align-items: center; gap: 5px; }
     </style>
 </head>
 <body>
 
+    <div class="instructions">
+        Please switch your braille translation table on your screen reader settings to ASCII braille.
+    </div>
+
     <div class="controls">
-        <button onclick="copyCleanText()">Copy Content Only</button>
-        <button onclick="clearEditor()">Clear All</button>
+        <button onclick="copyCleanText()">COPPY :T5T ONLY</button>
+        <button onclick="clearEditor()">CLE> ALL</button>
+        <button onclick="formatForBRF()">=MAT = BRF</button>
+        
+        <div class="toggle-group">
+            <input type="checkbox" id="showNumbers" checked onchange="refreshNumbers()">
+            <label for="showNumbers">L9E NUMB]S</label>
+        </div>
+
+        <div class="toggle-group">
+            <label for="marginInput">M>G9</label>
+            <input type="number" id="marginInput" value="1" min="1" max="10">
+        </div>
     </div>
 
     <textarea id="editor" spellcheck="false" wrap="off"></textarea>
 
     <script>
         const editor = document.getElementById('editor');
+        const showNumbers = document.getElementById('showNumbers');
+        const marginInput = document.getElementById('marginInput');
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
+        
+        let debounceTimer;
 
         function getGutter(index) {
+            if (!showNumbers.checked) return "";
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
         function refreshNumbers() {
             const start = editor.selectionStart;
             const end = editor.selectionEnd;
-            const oldValue = editor.value;
+            const lines = editor.value.split('\n');
             
-            let lines = oldValue.split('\n');
-            let newLines = lines.map((line, i) => {
+            const newLines = lines.map((line, i) => {
                 let clean = line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
                 return getGutter(i) + clean;
             });
 
             const newValue = newLines.join('\n');
-            
-            if (oldValue !== newValue) {
+            if (editor.value !== newValue) {
                 editor.value = newValue;
-                // Re-apply cursor position after value update
                 editor.setSelectionRange(start, end);
             }
             scaleFont();
@@ -74,19 +123,18 @@
 
         function scaleFont() {
             const lines = editor.value.split('\n');
-            const maxGutterSize = lines.length.toString().length;
-            const totalCells = 40 + maxGutterSize;
+            const gutterWidth = showNumbers.checked ? lines.length.toString().length : 0;
+            const totalCells = 40 + gutterWidth;
             const fontSize = (editor.clientWidth / totalCells) * 0.92;
             editor.style.fontSize = fontSize + 'px';
         }
 
         function enforceGhostZone() {
+            if (!showNumbers.checked) return;
             const pos = editor.selectionStart;
-            const textBefore = editor.value.substring(0, pos);
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const linesBefore = textBefore.split('\n');
-            const currentLineIdx = linesBefore.length - 1;
-            const gutter = getGutter(currentLineIdx);
+            const linesBefore = editor.value.substring(0, pos).split('\n');
+            const gutter = getGutter(linesBefore.length - 1);
             
             if ((pos - lineStartPos) < gutter.length) {
                 const newPos = lineStartPos + gutter.length;
@@ -97,75 +145,87 @@
         editor.addEventListener('keydown', (e) => {
             const pos = editor.selectionStart;
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
+            const linesBefore = editor.value.substring(0, pos).split('\n');
+            const currentLineIdx = linesBefore.length - 1;
+            const gutter = getGutter(currentLineIdx);
             const relativePos = pos - lineStartPos;
-            const gutterLen = getGutter(editor.value.substring(0, pos).split('\n').length - 1).length;
 
-            if (e.key === 'Backspace' && relativePos <= gutterLen) {
-                if (relativePos < gutterLen || editor.value.substring(0, pos).split('\n').length === 1) {
+            if (e.key === 'Backspace') {
+                if (relativePos === gutter.length) {
+                    if (currentLineIdx === 0) e.preventDefault();
+                } else if (relativePos < gutter.length) {
                     e.preventDefault();
                 }
             }
         });
 
-        editor.addEventListener('input', (e) => {
-            if (editor.value.includes('Ê')) {
-                const pos = editor.selectionStart;
-                editor.value = editor.value.replace(/Ê/g, '\n');
-                editor.setSelectionRange(pos, pos);
-            }
-
-            let lines = editor.value.split('\n');
-            let changed = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                let content = lines[i].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                if (content.length > 40) {
-                    let breakAt = content.lastIndexOf(' ', 40);
-                    if (breakAt === -1) breakAt = 40;
-                    let move = content.substring(breakAt).trimStart();
-                    lines[i] = getGutter(i) + content.substring(0, breakAt);
-                    if (lines[i+1] !== undefined) {
-                        lines[i+1] = lines[i+1].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                        lines[i+1] = move + " " + lines[i+1];
-                    } else {
-                        lines.push(move);
-                    }
-                    changed = true;
-                }
-            }
-
-            if (changed) {
-                const start = editor.selectionStart;
-                editor.value = lines.join('\n');
-                editor.setSelectionRange(start, start);
-            }
-            
-            refreshNumbers();
-            localStorage.setItem('braille_editor_v1', editor.value);
+        editor.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                refreshNumbers();
+                localStorage.setItem('braille_editor_v2', editor.value);
+            }, 250); // Debounce to prevent race condition during fast typing
         });
 
-        editor.addEventListener('click', () => { setTimeout(enforceGhostZone, 15); });
+        function formatForBRF() {
+            const margin = parseInt(marginInput.value) || 1;
+            const softIndent = " ".repeat(margin - 1);
+            const rawText = editor.value.split('\n').map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '')).join('\n');
+            
+            // Split into paragraphs based on hard returns
+            const paragraphs = rawText.split('\n');
+            const formattedParagraphs = paragraphs.map(para => {
+                if (para.trim() === "") return " "; // Anchor blank lines with a regular space
+
+                const words = para.split(' ');
+                let lines = [];
+                let currentLine = "";
+
+                words.forEach((word, index) => {
+                    // Line 1 uses full 40 (respects manual indent already in 'para')
+                    // Soft returns (lines > 0) use 40 - margin
+                    let limit = (lines.length === 0) ? 40 : 40;
+                    let prefix = (lines.length === 0) ? "" : softIndent;
+                    
+                    let testLine = (currentLine === "" ? prefix : currentLine + " ") + word;
+                    
+                    if (testLine.length <= limit) {
+                        currentLine = testLine;
+                    } else {
+                        lines.push(currentLine);
+                        currentLine = softIndent + word;
+                    }
+                });
+                lines.push(currentLine);
+                return lines.join('\n');
+            });
+
+            editor.value = formattedParagraphs.join('\n');
+            refreshNumbers();
+        }
+
+        editor.addEventListener('click', () => setTimeout(enforceGhostZone, 20));
         editor.addEventListener('keyup', (e) => {
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) enforceGhostZone();
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_editor_v1');
-            editor.value = saved ? saved : getGutter(0);
+            const saved = localStorage.getItem('braille_editor_v2');
+            editor.value = saved || getGutter(0);
             refreshNumbers();
             editor.focus();
-            const startPos = getGutter(0).length;
-            editor.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
-            const clean = editor.value.split('\n').map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '')).join('\n');
-            navigator.clipboard.writeText(clean).then(() => { alert("Copied!"); });
+            const clean = editor.value.split('\n')
+                .map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, ''))
+                .join('\n');
+            navigator.clipboard.writeText(clean).then(() => alert("COPPY COMPLETE"));
         }
 
         function clearEditor() {
-            if (confirm("Clear all?")) {
-                localStorage.removeItem('braille_editor_v1');
+            if (confirm("CLE> ALL?")) {
+                localStorage.removeItem('braille_editor_v2');
                 location.reload();
             }
         }

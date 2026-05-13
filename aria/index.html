@@ -73,7 +73,7 @@
     </div>
 
     <div class="controls">
-        <button onclick="copyCleanText()">COPPY 3T5T ONLY</button>
+        <button onclick="copyCleanText()">COPPY :T5T ONLY</button>
         <button onclick="clearEditor()">CLE> ALL</button>
         <button onclick="formatForBRF()">=MAT = BRF</button>
         
@@ -97,6 +97,8 @@
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         
         let debounceTimer;
+        let lastLineIndex = 0;
+        let isNavigating = false;
 
         function getGutter(index) {
             if (!showNumbers.checked) return "";
@@ -130,19 +132,44 @@
         }
 
         function enforceGhostZone() {
-            if (!showNumbers.checked) return;
+            if (!showNumbers.checked || isNavigating) return;
+
             const pos = editor.selectionStart;
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
             const linesBefore = editor.value.substring(0, pos).split('\n');
-            const gutter = getGutter(linesBefore.length - 1);
+            const currentLineIdx = linesBefore.length - 1;
+            const gutter = getGutter(currentLineIdx);
             
-            if ((pos - lineStartPos) < gutter.length) {
+            const relativePos = pos - lineStartPos;
+
+            if (relativePos < gutter.length) {
                 const newPos = lineStartPos + gutter.length;
                 editor.setSelectionRange(newPos, newPos);
             }
         }
 
+        // Real-time line switch monitoring for swift typing
+        document.addEventListener('selectionchange', () => {
+            if (!showNumbers.checked) return;
+
+            const pos = editor.selectionStart;
+            const linesBefore = editor.value.substring(0, pos).split('\n');
+            const currentLineIdx = linesBefore.length - 1;
+
+            if (currentLineIdx !== lastLineIndex) {
+                lastLineIndex = currentLineIdx;
+                if (!isNavigating) enforceGhostZone();
+            }
+        });
+
         editor.addEventListener('keydown', (e) => {
+            // Check if user is navigating (arrows) or typing
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                isNavigating = true;
+            } else {
+                isNavigating = false;
+            }
+
             const pos = editor.selectionStart;
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
             const linesBefore = editor.value.substring(0, pos).split('\n');
@@ -164,7 +191,7 @@
             debounceTimer = setTimeout(() => {
                 refreshNumbers();
                 localStorage.setItem('braille_editor_v2', editor.value);
-            }, 250); // Debounce to prevent race condition during fast typing
+            }, 150);
         });
 
         function formatForBRF() {
@@ -172,21 +199,19 @@
             const softIndent = " ".repeat(margin - 1);
             const rawText = editor.value.split('\n').map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '')).join('\n');
             
-            // Split into paragraphs based on hard returns
             const paragraphs = rawText.split('\n');
             const formattedParagraphs = paragraphs.map(para => {
-                if (para.trim() === "") return " "; // Anchor blank lines with a regular space
+                // Preserve blank lines with a single regular space
+                if (para.trim() === "") return " "; 
 
                 const words = para.split(' ');
                 let lines = [];
                 let currentLine = "";
 
-                words.forEach((word, index) => {
-                    // Line 1 uses full 40 (respects manual indent already in 'para')
-                    // Soft returns (lines > 0) use 40 - margin
-                    let limit = (lines.length === 0) ? 40 : 40;
+                words.forEach((word) => {
+                    let limit = 40;
+                    // Line 1 uses full 40 (respects manual indent), others use 40 - margin
                     let prefix = (lines.length === 0) ? "" : softIndent;
-                    
                     let testLine = (currentLine === "" ? prefix : currentLine + " ") + word;
                     
                     if (testLine.length <= limit) {
@@ -204,9 +229,9 @@
             refreshNumbers();
         }
 
-        editor.addEventListener('click', () => setTimeout(enforceGhostZone, 20));
-        editor.addEventListener('keyup', (e) => {
-            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) enforceGhostZone();
+        editor.addEventListener('click', () => {
+            isNavigating = false;
+            setTimeout(enforceGhostZone, 20);
         });
 
         window.onload = () => {
@@ -214,6 +239,10 @@
             editor.value = saved || getGutter(0);
             refreshNumbers();
             editor.focus();
+            
+            // Set initial cursor past first gutter
+            const firstGutter = getGutter(0).length;
+            editor.setSelectionRange(firstGutter, firstGutter);
         };
 
         function copyCleanText() {

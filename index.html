@@ -61,25 +61,41 @@
     <script>
         const editor = document.getElementById('editor');
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
-        let debounceTimer;
 
         function getGutter(index) {
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        function refreshNumbers() {
+        function processLayout() {
             const start = editor.selectionStart;
             const end = editor.selectionEnd;
             const oldValue = editor.value;
-            
-            let lines = oldValue.split('\n');
-            let newLines = lines.map((line, i) => {
-                let clean = line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                return getGutter(i) + clean;
-            });
 
-            const newValue = newLines.join('\n');
+            // Step 1: Extract pure text strings entirely decoupled from gutters
+            let lines = oldValue.split('\n').map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, ''));
             
+            // Step 2: Evaluate 40-cell line limits sequentially
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].length > 40) {
+                    let breakAt = lines[i].lastIndexOf(' ', 40);
+                    if (breakAt === -1) breakAt = 40;
+                    
+                    let keep = lines[i].substring(0, breakAt);
+                    let move = lines[i].substring(breakAt).trimStart();
+                    
+                    lines[i] = keep;
+                    if (lines[i+1] !== undefined) {
+                        // Prepend neatly without leaking structural whitespace or creating text drift
+                        lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1].trimStart();
+                    } else {
+                        lines.push(move);
+                    }
+                }
+            }
+
+            // Step 3: Re-apply perfectly synchronized gutters
+            const newValue = lines.map((content, idx) => getGutter(idx) + content).join('\n');
+
             if (oldValue !== newValue) {
                 editor.value = newValue;
                 editor.setSelectionRange(start, end);
@@ -97,9 +113,8 @@
 
         function enforceGhostZone() {
             const pos = editor.selectionStart;
-            const textBefore = editor.value.substring(0, pos);
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const linesBefore = textBefore.split('\n');
+            const linesBefore = editor.value.substring(0, pos).split('\n');
             const currentLineIdx = linesBefore.length - 1;
             const gutter = getGutter(currentLineIdx);
             
@@ -135,40 +150,10 @@
                 editor.value = editor.value.replace(/Ê/g, '\n');
                 editor.setSelectionRange(pos, pos);
             }
-
-            let lines = editor.value.split('\n');
-            let changed = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                let content = lines[i].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                if (content.length > 40) {
-                    let breakAt = content.lastIndexOf(' ', 40);
-                    if (breakAt === -1) breakAt = 40;
-                    let move = content.substring(breakAt).trimStart();
-                    
-                    lines[i] = getGutter(i) + content.substring(0, breakAt);
-                    if (lines[i+1] !== undefined) {
-                        lines[i+1] = lines[i+1].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                        lines[i+1] = move + " " + lines[i+1];
-                    } else {
-                        lines.push(move);
-                    }
-                    changed = true;
-                }
-            }
-
-            if (changed) {
-                const start = editor.selectionStart;
-                editor.value = lines.join('\n');
-                editor.setSelectionRange(start, start);
-            }
             
-            // Tight debounce logic to stabilize rapid entries and prevent line number duplication
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                refreshNumbers();
-                localStorage.setItem('braille_editor_v1', editor.value);
-            }, 150);
+            // Processing inline synchronously eliminates race conditions entirely
+            processLayout();
+            localStorage.setItem('braille_editor_v1', editor.value);
         });
 
         editor.addEventListener('click', () => { 
@@ -184,7 +169,7 @@
         window.onload = () => {
             const saved = localStorage.getItem('braille_editor_v1');
             editor.value = saved ? saved : getGutter(0);
-            refreshNumbers();
+            processLayout();
             editor.focus();
             const startPos = getGutter(0).length;
             editor.setSelectionRange(startPos, startPos);

@@ -60,29 +60,37 @@
 
     <script>
         const editor = document.getElementById('editor');
-        const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         
+        // Structural Metadata Tokens
+        const STX = '\u0002';  // Start of Text (Left Bracket)
+        const ETX = '\u0003';  // End of Text (Right Bracket)
+        const ZWSP = '\u200B'; // Zero-Width Space (Soft Wrap Marker)
+        
+        const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         let isNavigating = false;
 
         function getGutter(index) {
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        function lockCursorPastGutter() {
+        // Post-Movement Alignment Guard (Locks cursor completely out of the metadata zone)
+        function realignCursor() {
             if (isNavigating) return;
             
             const pos = editor.selectionStart;
-            const textUntilCursor = editor.value.substring(0, pos);
-            const linesBefore = textUntilCursor.split('\n');
-            const currentLineIdx = linesBefore.length - 1;
-            
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const gutterLength = getGutter(currentLineIdx).length;
-            const relativePos = pos - lineStartPos;
-
-            if (relativePos < gutterLength) {
-                const targetPos = lineStartPos + gutterLength;
-                editor.setSelectionRange(targetPos, targetPos);
+            const lineEndPos = editor.value.indexOf('\n', pos);
+            const currentLineStr = editor.value.substring(lineStartPos, lineEndPos === -1 ? editor.value.length : lineEndPos);
+            
+            const rightBracketIdx = currentLineStr.indexOf(ETX);
+            if (rightBracketIdx !== -1) {
+                const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
+                
+                // If cursor drops onto or behind the right bracket, snap to right side of ETX (Cell 1, Facing Right)
+                if (pos <= absoluteRightBracketPos) {
+                    const targetPos = absoluteRightBracketPos + 1;
+                    editor.setSelectionRange(targetPos, targetPos);
+                }
             }
         }
 
@@ -90,23 +98,33 @@
             const start = editor.selectionStart;
             const oldValue = editor.value;
 
-            // Determine which line and relative character offset the cursor is currently tracking
+            // Track precise coordinates of the cursor relative to the ETX marker before rewriting layout
             const linesBefore = oldValue.substring(0, start).split('\n');
             const currentLineIdx = linesBefore.length - 1;
-            const currentGutterLen = getGutter(currentLineIdx).length;
             const currentLineStart = oldValue.lastIndexOf('\n', start - 1) + 1;
-            const relativeCharOffset = Math.max(0, (start - currentLineStart) - currentGutterLen);
+            const currentRightBracket = oldValue.indexOf(ETX, currentLineStart);
+            
+            let relativeCharOffset = 0;
+            if (currentRightBracket !== -1 && start > currentRightBracket) {
+                relativeCharOffset = start - (currentRightBracket + 1);
+            }
 
-            // Step 1: Isolate active content strings cleanly via index slicing rather than character matching
+            // Step 1: Isolate active content layers cleanly via structural token extraction
             let rawLines = oldValue.split('\n');
-            let lines = rawLines.map((line, idx) => {
-                const gutterLen = getGutter(idx).length;
-                return line.substring(gutterLen);
+            let lines = rawLines.map(line => {
+                let etxIdx = line.indexOf(ETX);
+                if (etxIdx !== -1) {
+                    let content = line.substring(etxIdx + 1);
+                    if (content.endsWith(ZWSP)) {
+                        content = content.slice(0, -1); // Trim old wrap markers for recalculation
+                    }
+                    return content;
+                }
+                // Handle recovery if structural envelope was ruptured natively
+                return line.replace(/[\u0002\u0003\u200B]/g, '');
             });
 
-            let changed = false;
-
-            // Step 2: Soft Boundary Wrapping Logic
+            // Step 2: Soft Boundary Wrapping Logic (40-Cell Threshold Validation)
             for (let i = 0; i < lines.length; i++) {
                 if (lines[i].length > 40) {
                     let breakAt = lines[i].lastIndexOf(' ', 40);
@@ -119,36 +137,34 @@
                         let keep = lines[i].substring(0, breakAt);
                         let move = lines[i].substring(breakAt).trimStart();
                         
-                        lines[i] = keep;
+                        lines[i] = keep + ZWSP; // Flag line as automatically soft-wrapped
                         if (lines[i+1] !== undefined) {
-                            lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1].trimStart();
+                            lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1];
                         } else {
                             lines.push(move);
                         }
-                        changed = true;
                     }
                 }
             }
 
-            // Step 3: Reconstruct layout with structural mapping metrics intact
-            const newValue = lines.map((content, idx) => getGutter(idx) + content).join('\n');
+            // Step 3: Reconstruct Document with freshly generated, bracketed gutters
+            const newValue = lines.map((content, idx) => STX + getGutter(idx) + ETX + content).join('\n');
 
             if (oldValue !== newValue) {
                 editor.value = newValue;
                 
-                // Re-calculate modern absolute coordinate matching from saved relative offsets
+                // Recalculate and restore absolute selection range indexes from relative offsets
                 const targetLines = newValue.split('\n');
                 let targetAbsolutePos = 0;
                 
                 for (let i = 0; i < targetLines.length; i++) {
                     if (i === currentLineIdx) {
-                        const targetGutterLen = getGutter(i).length;
-                        // Limit tracking offset to real content bounds
-                        const safeOffset = Math.min(relativeCharOffset, targetLines[i].length - targetGutterLen);
-                        targetAbsolutePos += targetGutterLen + safeOffset;
+                        const rightBracketIdx = targetLines[i].indexOf(ETX);
+                        const safeOffset = Math.min(relativeCharOffset, targetLines[i].length - (rightBracketIdx + 1));
+                        targetAbsolutePos += (rightBracketIdx + 1) + safeOffset;
                         break;
                     } else {
-                        targetAbsolutePos += targetLines[i].length + 1; // Content length + newline break
+                        targetAbsolutePos += targetLines[i].length + 1;
                     }
                 }
                 editor.setSelectionRange(targetAbsolutePos, targetAbsolutePos);
@@ -161,33 +177,106 @@
         function scaleFont() {
             const lines = editor.value.split('\n');
             const maxGutterSize = lines.length.toString().length;
-            const totalCells = 40 + maxGutterSize;
+            const totalCells = 40 + maxGutterSize + 2; // Gutter + 40 cells + 2 tokens
             const fontSize = (editor.clientWidth / totalCells) * 0.92;
             editor.style.fontSize = fontSize + 'px';
         }
 
         editor.addEventListener('keydown', (e) => {
-            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
-                isNavigating = true;
-            } else {
-                isNavigating = false;
-            }
-
             const pos = editor.selectionStart;
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const relativePos = pos - lineStartPos;
-            const currentLineIdx = editor.value.substring(0, pos).split('\n').length - 1;
-            const gutterLen = getGutter(currentLineIdx).length;
+            const lineEndPos = editor.value.indexOf('\n', pos);
+            const currentLineStr = editor.value.substring(lineStartPos, lineEndPos === -1 ? editor.value.length : lineEndPos);
+            const rightBracketIdx = currentLineStr.indexOf(ETX);
+            const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
+            
+            // Directional Key Intercepts
+            if (e.key === 'ArrowUp') {
+                if (lineStartPos === 0) return; // Top of file
+                e.preventDefault();
+                
+                const targetLineEnd = lineStartPos - 1;
+                const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                const targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
+                
+                if (targetLineStr.endsWith(ZWSP)) {
+                    // Soft Wrap Target -> Land exactly on ZWSP (Facing Left)
+                    const targetPos = targetLineStart + targetLineStr.length - 1;
+                    editor.setSelectionRange(targetPos, targetPos);
+                } else {
+                    // Manual Break Target -> Land right before structural \n (Facing Left)
+                    editor.setSelectionRange(targetLineEnd, targetLineEnd);
+                }
+                return;
+            }
+
+            if (e.key === 'ArrowDown') {
+                isNavigating = false; // Force immediate validation pass upon landing
+                return;
+            }
+
+            if (e.key === 'ArrowRight') {
+                // If cursor hits the end of a line, leap over the upcoming envelope to cell 1
+                if (pos === lineEndPos || (editor.value.charAt(pos) === '\n')) {
+                    e.preventDefault();
+                    const nextLineStart = (lineEndPos === -1 ? editor.value.length : lineEndPos) + 1;
+                    const nextRightBracket = editor.value.indexOf(ETX, nextLineStart);
+                    if (nextRightBracket !== -1) {
+                        const targetPos = nextRightBracket + 1;
+                        editor.setSelectionRange(targetPos, targetPos);
+                    }
+                }
+                return;
+            }
+
+            if (e.key === 'ArrowLeft') {
+                // Shield left tracking from penetrating ETX; Teleport back to target line above
+                if (pos === absoluteRightBracketPos + 1) {
+                    e.preventDefault();
+                    if (lineStartPos === 0) return;
+                    
+                    const targetLineEnd = lineStartPos - 1;
+                    const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                    const targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
+                    
+                    const targetPos = targetLineStr.endsWith(ZWSP) ? (targetLineStart + targetLineStr.length - 1) : targetLineEnd;
+                    editor.setSelectionRange(targetPos, targetPos);
+                }
+                return;
+            }
 
             if (e.key === 'Backspace') {
-                if (relativePos === gutterLen) {
-                    if (currentLineIdx === 0) {
-                        e.preventDefault();
-                    } else {
-                        isNavigating = true;
-                    }
-                } else if (relativePos < gutterLen) {
+                if (pos === absoluteRightBracketPos + 1) {
                     e.preventDefault();
+                    if (lineStartPos === 0) return; // No line above to merge into
+
+                    // Structural Macro Merge Operations
+                    const currentContent = currentLineStr.substring(rightBracketIdx + 1);
+                    const targetLineEnd = lineStartPos - 1;
+                    const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                    let targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
+                    
+                    let targetContentIdx = targetLineStr.indexOf(ETX);
+                    let cleanTargetContent = targetContentIdx !== -1 ? targetLineStr.substring(targetContentIdx + 1) : targetLineStr;
+                    
+                    if (cleanTargetContent.endsWith(ZWSP)) {
+                        cleanTargetContent = cleanTargetContent.slice(0, -1);
+                    }
+
+                    // Append text content seamlessly across lines
+                    const targetGutter = targetContentIdx !== -1 ? targetLineStr.substring(0, targetContentIdx + 1) : (STX + getGutter(0) + ETX);
+                    const mergedLine = targetGutter + cleanTargetContent + currentContent;
+                    
+                    const beforeBlock = editor.value.substring(0, targetLineStart);
+                    const afterBlock = editor.value.substring(lineEndPos === -1 ? editor.value.length : lineEndPos);
+                    
+                    editor.value = beforeBlock + (targetLineStart > 0 ? "" : "") + mergedLine + afterBlock;
+                    
+                    // Set cursor position right at the nexus point of the text merge
+                    const cursorAnchor = targetLineStart + targetGutter.length + cleanTargetContent.length;
+                    editor.setSelectionRange(cursorAnchor, cursorAnchor);
+                    
+                    processLayout(false);
                 }
             }
         });
@@ -202,36 +291,44 @@
             const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
             
             processLayout(isWordBoundary);
-            localStorage.setItem('braille_editor_v1', editor.value);
-            lockCursorPastGutter();
+            localStorage.setItem('braille_editor_v2_tokens', editor.value);
+            realignCursor();
         });
 
         editor.addEventListener('click', () => { 
             isNavigating = false;
-            lockCursorPastGutter(); 
+            realignCursor(); 
         });
         
         editor.addEventListener('keyup', (e) => {
-            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) {
-                lockCursorPastGutter();
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                realignCursor();
             }
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_editor_v1');
-            editor.value = saved ? saved : getGutter(0);
+            const saved = localStorage.getItem('braille_editor_v2_tokens');
+            if (saved) {
+                editor.value = saved;
+            } else {
+                editor.value = STX + getGutter(0) + ETX;
+            }
             processLayout(true);
             editor.focus();
             
-            const startPos = getGutter(0).length;
+            const startPos = editor.value.indexOf(ETX) + 1;
             editor.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
             const clean = editor.value.split('\n')
-                .map((line, idx) => {
-                    const gutterLen = getGutter(idx).length;
-                    return line.substring(gutterLen);
+                .map(line => {
+                    let etxIdx = line.indexOf(ETX);
+                    if (etxIdx !== -1) {
+                        let content = line.substring(etxIdx + 1);
+                        return content.replace(/[\u200B]/g, ''); // Clear wrap tokens for clean export
+                    }
+                    return line.replace(/[\u0002\u0003\u200B]/g, '');
                 })
                 .join('\n');
             navigator.clipboard.writeText(clean).then(() => { 
@@ -240,8 +337,8 @@
         }
 
         function clearEditor() {
-            if (confirm("Clear all?")) {
-                localStorage.removeItem('braille_editor_v1');
+            if (confirm("Clear all contents?")) {
+                localStorage.removeItem('braille_editor_v2_tokens');
                 location.reload();
             }
         }

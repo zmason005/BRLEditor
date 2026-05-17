@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Stabilized iOS Stream</title>
+    <title>Braille Editor - Token-First Stream</title>
     <style>
         html, body { 
             background-color: #000; 
@@ -61,10 +61,10 @@
     <script>
         const editor = document.getElementById('editor');
         
-        // Structural Metadata Tokens
-        const STX = '\u0002';  // Start of Text (Left Bracket)
-        const ETX = '\u0003';  // End of Text (Right Bracket)
-        const ZWSP = '\u200B'; // Zero-Width Space (Soft Wrap Marker)
+        // Symmetrical Metadata Control Envelopes
+        const STX = '\u0002';  // Left Anchor
+        const ETX = '\u0003';  // Right Anchor
+        const ZWSP = '\u200B'; // Soft Wrap Indicator
         
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         let isNavigating = false;
@@ -73,7 +73,7 @@
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        // Post-Movement Alignment Guard (Locks cursor completely out of the metadata zone)
+        // Rigid Focus Guard - Prevents cursor from ever selecting or dropping behind metadata
         function realignCursor() {
             if (isNavigating) return;
             
@@ -85,8 +85,6 @@
             const rightBracketIdx = currentLineStr.indexOf(ETX);
             if (rightBracketIdx !== -1) {
                 const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
-                
-                // If cursor drops onto or behind the right bracket, snap to right side of ETX (Cell 1, Facing Right)
                 if (pos <= absoluteRightBracketPos) {
                     const targetPos = absoluteRightBracketPos + 1;
                     editor.setSelectionRange(targetPos, targetPos);
@@ -94,79 +92,108 @@
             }
         }
 
+        function extractPureText(fullText) {
+            // Token-First Slicing Engine: Erases all structural blocks regardless of \n presence
+            let result = "";
+            let i = 0;
+            while (i < fullText.length) {
+                if (fullText.charAt(i) === STX) {
+                    let nextEtx = fullText.indexOf(ETX, i);
+                    if (nextEtx !== -1) {
+                        i = nextEtx + 1; // Leap entirely over the structural metadata block
+                        continue;
+                    }
+                }
+                let char = fullText.charAt(i);
+                if (char !== ZWSP) { // Strip soft wraps for dynamic reflow compilation
+                    result += char;
+                }
+                i++;
+            }
+            return result;
+        }
+
         function processLayout(isWordBoundary = false) {
             const start = editor.selectionStart;
             const oldValue = editor.value;
 
-            // Track precise coordinates of the cursor relative to the ETX marker before rewriting layout
-            const linesBefore = oldValue.substring(0, start).split('\n');
-            const currentLineIdx = linesBefore.length - 1;
-            const currentLineStart = oldValue.lastIndexOf('\n', start - 1) + 1;
-            const currentRightBracket = oldValue.indexOf(ETX, currentLineStart);
-            
-            let relativeCharOffset = 0;
-            if (currentRightBracket !== -1 && start > currentRightBracket) {
-                relativeCharOffset = start - (currentRightBracket + 1);
-            }
+            // Determine tracking coordinates of cursor relative to pure content boundaries
+            const pureTextBeforeCursor = extractPureText(oldValue.substring(0, start));
+            const paragraphsBefore = pureTextBeforeCursor.split('\n');
+            const targetParagraphIdx = paragraphsBefore.length - 1;
+            const targetCharOffset = paragraphsBefore[targetParagraphIdx].length;
 
-            // Step 1: Isolate active content layers cleanly via structural token extraction
-            let rawLines = oldValue.split('\n');
-            let lines = rawLines.map(line => {
-                let etxIdx = line.indexOf(ETX);
-                if (etxIdx !== -1) {
-                    let content = line.substring(etxIdx + 1);
-                    if (content.endsWith(ZWSP)) {
-                        content = content.slice(0, -1); // Trim old wrap markers for recalculation
-                    }
-                    return content;
+            // Extract the overall text completely sanitized of metadata framework
+            const masterPureContent = extractPureText(oldValue);
+            const hardParagraphs = masterPureContent.split('\n');
+            let structuralLines = [];
+
+            // Execute Word Wrap Compilation based exclusively on raw text lengths
+            for (let p = 0; p < hardParagraphs.length; p++) {
+                let segment = hardParagraphs[p];
+                if (segment.length === 0) {
+                    structuralLines.push({ content: "", isSoftWrapped: false, srcParagraph: p, srcOffset: 0 });
+                    continue;
                 }
-                // Handle recovery if structural envelope was ruptured natively
-                return line.replace(/[\u0002\u0003\u200B]/g, '');
-            });
 
-            // Step 2: Soft Boundary Wrapping Logic (40-Cell Threshold Validation)
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].length > 40) {
-                    let breakAt = lines[i].lastIndexOf(' ', 40);
-                    
-                    if (breakAt === -1 && lines[i].length > 45) {
-                        breakAt = 40; 
-                    }
+                let currentOffset = 0;
+                while (segment.length > 0) {
+                    if (segment.length <= 40) {
+                        structuralLines.push({ content: segment, isSoftWrapped: false, srcParagraph: p, srcOffset: currentOffset });
+                        break;
+                    } else {
+                        let breakAt = segment.lastIndexOf(' ', 40);
+                        if (breakAt === -1 && segment.length > 45) {
+                            breakAt = 40;
+                        }
 
-                    if (breakAt !== -1 && (isWordBoundary || lines[i].length > 45)) {
-                        let keep = lines[i].substring(0, breakAt);
-                        let move = lines[i].substring(breakAt).trimStart();
-                        
-                        lines[i] = keep + ZWSP; // Flag line as automatically soft-wrapped
-                        if (lines[i+1] !== undefined) {
-                            lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1];
+                        if (breakAt !== -1 && (isWordBoundary || segment.length > 45)) {
+                            let keep = segment.substring(0, breakAt);
+                            let move = segment.substring(breakAt).trimStart();
+                            structuralLines.push({ content: keep, isSoftWrapped: true, srcParagraph: p, srcOffset: currentOffset });
+                            currentOffset += keep.length + (segment.length - keep.length - move.length);
+                            segment = move;
                         } else {
-                            lines.push(move);
+                            // Boundary threshold not fully committed; defer wrap cut
+                            structuralLines.push({ content: segment, isSoftWrapped: false, srcParagraph: p, srcOffset: currentOffset });
+                            break;
                         }
                     }
                 }
             }
 
-            // Step 3: Reconstruct Document with freshly generated, bracketed gutters
-            const newValue = lines.map((content, idx) => STX + getGutter(idx) + ETX + content).join('\n');
+            // Reconstruct unified string mapping fresh layout matrices
+            let newValue = "";
+            let targetAbsolutePos = -1;
+
+            for (let i = 0; i < structuralLines.length; i++) {
+                let item = structuralLines[i];
+                let gutterStr = STX + getGutter(i) + ETX;
+                let lineOutput = gutterStr + item.content + (item.isSoftWrapped ? ZWSP : "");
+                
+                // Track where the selection index maps inside the reconstructed layout matrix
+                if (targetAbsolutePos === -1 && item.srcParagraph === targetParagraphIdx) {
+                    let nextItem = structuralLines[i + 1];
+                    let nextOffset = nextItem ? nextItem.srcOffset : Infinity;
+                    
+                    if (targetCharOffset >= item.srcOffset && (targetCharOffset < nextOffset || item.srcParagraph !== (nextItem ? nextItem.srcParagraph : -1))) {
+                        let localOffset = targetCharOffset - item.srcOffset;
+                        let safeOffset = Math.min(localOffset, item.content.length);
+                        targetAbsolutePos = newValue.length + gutterStr.length + safeOffset;
+                    }
+                }
+                
+                newValue += lineOutput;
+                if (i < structuralLines.length - 1) {
+                    newValue += "\n";
+                }
+            }
+
+            // Safeguard bounds validation mapping
+            if (targetAbsolutePos === -1) targetAbsolutePos = newValue.length;
 
             if (oldValue !== newValue) {
                 editor.value = newValue;
-                
-                // Recalculate and restore absolute selection range indexes from relative offsets
-                const targetLines = newValue.split('\n');
-                let targetAbsolutePos = 0;
-                
-                for (let i = 0; i < targetLines.length; i++) {
-                    if (i === currentLineIdx) {
-                        const rightBracketIdx = targetLines[i].indexOf(ETX);
-                        const safeOffset = Math.min(relativeCharOffset, targetLines[i].length - (rightBracketIdx + 1));
-                        targetAbsolutePos += (rightBracketIdx + 1) + safeOffset;
-                        break;
-                    } else {
-                        targetAbsolutePos += targetLines[i].length + 1;
-                    }
-                }
                 editor.setSelectionRange(targetAbsolutePos, targetAbsolutePos);
             } else {
                 editor.setSelectionRange(start, start);
@@ -177,7 +204,7 @@
         function scaleFont() {
             const lines = editor.value.split('\n');
             const maxGutterSize = lines.length.toString().length;
-            const totalCells = 40 + maxGutterSize + 2; // Gutter + 40 cells + 2 tokens
+            const totalCells = 40 + maxGutterSize + 2; 
             const fontSize = (editor.clientWidth / totalCells) * 0.92;
             editor.style.fontSize = fontSize + 'px';
         }
@@ -190,9 +217,8 @@
             const rightBracketIdx = currentLineStr.indexOf(ETX);
             const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
             
-            // Directional Key Intercepts
             if (e.key === 'ArrowUp') {
-                if (lineStartPos === 0) return; // Top of file
+                if (lineStartPos === 0) return;
                 e.preventDefault();
                 
                 const targetLineEnd = lineStartPos - 1;
@@ -200,23 +226,20 @@
                 const targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
                 
                 if (targetLineStr.endsWith(ZWSP)) {
-                    // Soft Wrap Target -> Land exactly on ZWSP (Facing Left)
                     const targetPos = targetLineStart + targetLineStr.length - 1;
                     editor.setSelectionRange(targetPos, targetPos);
                 } else {
-                    // Manual Break Target -> Land right before structural \n (Facing Left)
                     editor.setSelectionRange(targetLineEnd, targetLineEnd);
                 }
                 return;
             }
 
             if (e.key === 'ArrowDown') {
-                isNavigating = false; // Force immediate validation pass upon landing
+                isNavigating = false;
                 return;
             }
 
             if (e.key === 'ArrowRight') {
-                // If cursor hits the end of a line, leap over the upcoming envelope to cell 1
                 if (pos === lineEndPos || (editor.value.charAt(pos) === '\n')) {
                     e.preventDefault();
                     const nextLineStart = (lineEndPos === -1 ? editor.value.length : lineEndPos) + 1;
@@ -230,7 +253,6 @@
             }
 
             if (e.key === 'ArrowLeft') {
-                // Shield left tracking from penetrating ETX; Teleport back to target line above
                 if (pos === absoluteRightBracketPos + 1) {
                     e.preventDefault();
                     if (lineStartPos === 0) return;
@@ -248,9 +270,9 @@
             if (e.key === 'Backspace') {
                 if (pos === absoluteRightBracketPos + 1) {
                     e.preventDefault();
-                    if (lineStartPos === 0) return; // No line above to merge into
+                    if (lineStartPos === 0) return;
 
-                    // Structural Macro Merge Operations
+                    // Manual Content Nexus Merging Pass
                     const currentContent = currentLineStr.substring(rightBracketIdx + 1);
                     const targetLineEnd = lineStartPos - 1;
                     const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
@@ -263,16 +285,14 @@
                         cleanTargetContent = cleanTargetContent.slice(0, -1);
                     }
 
-                    // Append text content seamlessly across lines
                     const targetGutter = targetContentIdx !== -1 ? targetLineStr.substring(0, targetContentIdx + 1) : (STX + getGutter(0) + ETX);
                     const mergedLine = targetGutter + cleanTargetContent + currentContent;
                     
                     const beforeBlock = editor.value.substring(0, targetLineStart);
                     const afterBlock = editor.value.substring(lineEndPos === -1 ? editor.value.length : lineEndPos);
                     
-                    editor.value = beforeBlock + (targetLineStart > 0 ? "" : "") + mergedLine + afterBlock;
+                    editor.value = beforeBlock + mergedLine + afterBlock;
                     
-                    // Set cursor position right at the nexus point of the text merge
                     const cursorAnchor = targetLineStart + targetGutter.length + cleanTargetContent.length;
                     editor.setSelectionRange(cursorAnchor, cursorAnchor);
                     
@@ -291,7 +311,7 @@
             const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
             
             processLayout(isWordBoundary);
-            localStorage.setItem('braille_editor_v2_tokens', editor.value);
+            localStorage.setItem('braille_editor_v3_packets', editor.value);
             realignCursor();
         });
 
@@ -307,7 +327,7 @@
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_editor_v2_tokens');
+            const saved = localStorage.getItem('braille_editor_v3_packets');
             if (saved) {
                 editor.value = saved;
             } else {
@@ -321,16 +341,7 @@
         };
 
         function copyCleanText() {
-            const clean = editor.value.split('\n')
-                .map(line => {
-                    let etxIdx = line.indexOf(ETX);
-                    if (etxIdx !== -1) {
-                        let content = line.substring(etxIdx + 1);
-                        return content.replace(/[\u200B]/g, ''); // Clear wrap tokens for clean export
-                    }
-                    return line.replace(/[\u0002\u0003\u200B]/g, '');
-                })
-                .join('\n');
+            const clean = extractPureText(editor.value);
             navigator.clipboard.writeText(clean).then(() => { 
                 alert("Clean text copied to clipboard!"); 
             });
@@ -338,7 +349,7 @@
 
         function clearEditor() {
             if (confirm("Clear all contents?")) {
-                localStorage.removeItem('braille_editor_v2_tokens');
+                localStorage.removeItem('braille_editor_v3_packets');
                 location.reload();
             }
         }

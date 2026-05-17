@@ -3,22 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Guarded In-Stream</title>
+    <title>Braille Editor - Stabilized iOS Stream</title>
     <style>
-        body { 
+        html, body { 
             background-color: #000; 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+        body { 
             color: #fff; 
             font-family: 'SimBraille', monospace; 
-            margin: 0; 
-            padding: 20px; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            overflow-x: hidden;
+            padding-top: 20px;
         }
         #editor {
-            width: 95vw;
-            height: 75vh;
+            width: 90vw;
+            height: 70vh;
             background: #111;
             color: #fff;
             border: 2px solid #fff;
@@ -56,161 +61,188 @@
     <script>
         const editor = document.getElementById('editor');
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
+        
+        let isNavigating = false;
 
         function getGutter(index) {
             return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        function refreshNumbers() {
-            const start = editor.selectionStart;
-            const end = editor.selectionEnd;
+        function lockCursorPastGutter() {
+            if (isNavigating) return;
             
-            let lines = editor.value.split('\n');
-            let newLines = lines.map((line, i) => {
-                // Strip existing braille numbers from the start of the line
-                let clean = line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                return getGutter(i) + clean;
+            const pos = editor.selectionStart;
+            const textUntilCursor = editor.value.substring(0, pos);
+            const linesBefore = textUntilCursor.split('\n');
+            const currentLineIdx = linesBefore.length - 1;
+            
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
+            const gutterLength = getGutter(currentLineIdx).length;
+            const relativePos = pos - lineStartPos;
+
+            if (relativePos < gutterLength) {
+                const targetPos = lineStartPos + gutterLength;
+                editor.setSelectionRange(targetPos, targetPos);
+            }
+        }
+
+        function processLayout(isWordBoundary = false) {
+            const start = editor.selectionStart;
+            const oldValue = editor.value;
+
+            // Determine which line and relative character offset the cursor is currently tracking
+            const linesBefore = oldValue.substring(0, start).split('\n');
+            const currentLineIdx = linesBefore.length - 1;
+            const currentGutterLen = getGutter(currentLineIdx).length;
+            const currentLineStart = oldValue.lastIndexOf('\n', start - 1) + 1;
+            const relativeCharOffset = Math.max(0, (start - currentLineStart) - currentGutterLen);
+
+            // Step 1: Isolate active content strings cleanly via index slicing rather than character matching
+            let rawLines = oldValue.split('\n');
+            let lines = rawLines.map((line, idx) => {
+                const gutterLen = getGutter(idx).length;
+                return line.substring(gutterLen);
             });
 
-            const newValue = newLines.join('\n');
-            
-            // Only update the value if it has actually changed to prevent cursor jitter
-            if (editor.value !== newValue) {
+            let changed = false;
+
+            // Step 2: Soft Boundary Wrapping Logic
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].length > 40) {
+                    let breakAt = lines[i].lastIndexOf(' ', 40);
+                    
+                    if (breakAt === -1 && lines[i].length > 45) {
+                        breakAt = 40; 
+                    }
+
+                    if (breakAt !== -1 && (isWordBoundary || lines[i].length > 45)) {
+                        let keep = lines[i].substring(0, breakAt);
+                        let move = lines[i].substring(breakAt).trimStart();
+                        
+                        lines[i] = keep;
+                        if (lines[i+1] !== undefined) {
+                            lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1].trimStart();
+                        } else {
+                            lines.push(move);
+                        }
+                        changed = true;
+                    }
+                }
+            }
+
+            // Step 3: Reconstruct layout with structural mapping metrics intact
+            const newValue = lines.map((content, idx) => getGutter(idx) + content).join('\n');
+
+            if (oldValue !== newValue) {
                 editor.value = newValue;
-                editor.setSelectionRange(start, end);
+                
+                // Re-calculate modern absolute coordinate matching from saved relative offsets
+                const targetLines = newValue.split('\n');
+                let targetAbsolutePos = 0;
+                
+                for (let i = 0; i < targetLines.length; i++) {
+                    if (i === currentLineIdx) {
+                        const targetGutterLen = getGutter(i).length;
+                        // Limit tracking offset to real content bounds
+                        const safeOffset = Math.min(relativeCharOffset, targetLines[i].length - targetGutterLen);
+                        targetAbsolutePos += targetGutterLen + safeOffset;
+                        break;
+                    } else {
+                        targetAbsolutePos += targetLines[i].length + 1; // Content length + newline break
+                    }
+                }
+                editor.setSelectionRange(targetAbsolutePos, targetAbsolutePos);
+            } else {
+                editor.setSelectionRange(start, start);
             }
             scaleFont();
         }
 
         function scaleFont() {
             const lines = editor.value.split('\n');
-            const maxGutter = lines.length.toString().length;
-            const totalCells = 40 + maxGutter;
-            // Adjusts font size so 40 cells + gutter always fit the screen width
-            const fontSize = (editor.clientWidth / totalCells) * 0.95;
+            const maxGutterSize = lines.length.toString().length;
+            const totalCells = 40 + maxGutterSize;
+            const fontSize = (editor.clientWidth / totalCells) * 0.92;
             editor.style.fontSize = fontSize + 'px';
         }
 
-        function enforceGhostZone() {
-            const pos = editor.selectionStart;
-            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const textBefore = editor.value.substring(0, pos);
-            const linesBefore = textBefore.split('\n');
-            const currentLineIdx = linesBefore.length - 1;
-            const gutter = getGutter(currentLineIdx);
-            
-            const relativePos = pos - lineStartPos;
-
-            // If cursor is inside the gutter, snap it to the start of the content area
-            if (relativePos < gutter.length) {
-                const newPos = lineStartPos + gutter.length;
-                editor.setSelectionRange(newPos, newPos);
-            }
-        }
-
         editor.addEventListener('keydown', (e) => {
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                isNavigating = true;
+            } else {
+                isNavigating = false;
+            }
+
             const pos = editor.selectionStart;
             const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const linesBefore = editor.value.substring(0, pos).split('\n');
-            const currentLineIdx = linesBefore.length - 1;
-            const gutter = getGutter(currentLineIdx);
             const relativePos = pos - lineStartPos;
+            const currentLineIdx = editor.value.substring(0, pos).split('\n').length - 1;
+            const gutterLen = getGutter(currentLineIdx).length;
 
-            // Handle Backspace at the boundary to prevent deleting the gutter
-            if (e.key === 'Backspace' && relativePos <= gutter.length) {
-                if (currentLineIdx === 0 || relativePos < gutter.length) {
+            if (e.key === 'Backspace') {
+                if (relativePos === gutterLen) {
+                    if (currentLineIdx === 0) {
+                        e.preventDefault();
+                    } else {
+                        isNavigating = true;
+                    }
+                } else if (relativePos < gutterLen) {
                     e.preventDefault();
                 }
-                // Allowed if relativePos === gutter.length to allow merging with previous line
             }
         });
 
         editor.addEventListener('input', (e) => {
-            // Simulated Enter support
             if (editor.value.includes('Ê')) {
                 const pos = editor.selectionStart;
                 editor.value = editor.value.replace(/Ê/g, '\n');
                 editor.setSelectionRange(pos, pos);
             }
 
-            // 40-character wrapping logic
-            let lines = editor.value.split('\n');
-            let changed = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                let gutter = getGutter(i);
-                let content = lines[i].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                
-                if (content.length > 40) {
-                    let breakAt = content.lastIndexOf(' ', 40);
-                    if (breakAt === -1) breakAt = 40;
-
-                    let keep = content.substring(0, breakAt);
-                    let move = content.substring(breakAt).trimStart();
-
-                    lines[i] = gutter + keep;
-                    if (lines[i+1] !== undefined) {
-                        let nextContent = lines[i+1].replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
-                        lines[i+1] = move + " " + nextContent;
-                    } else {
-                        lines.push(move);
-                    }
-                    changed = true;
-                }
-            }
-
-            if (changed) {
-                const start = editor.selectionStart;
-                editor.value = lines.join('\n');
-                editor.setSelectionRange(start, start);
-            }
+            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
             
-            refreshNumbers();
+            processLayout(isWordBoundary);
             localStorage.setItem('braille_editor_v1', editor.value);
+            lockCursorPastGutter();
         });
 
-        // Ensure clicking or navigating doesn't land in the line number zone
-        editor.addEventListener('click', () => {
-            setTimeout(enforceGhostZone, 10);
+        editor.addEventListener('click', () => { 
+            isNavigating = false;
+            lockCursorPastGutter(); 
         });
         
         editor.addEventListener('keyup', (e) => {
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) {
-                enforceGhostZone();
+                lockCursorPastGutter();
             }
         });
 
         window.onload = () => {
             const saved = localStorage.getItem('braille_editor_v1');
-            if (saved) {
-                editor.value = saved;
-            } else {
-                editor.value = getGutter(0);
-            }
-            refreshNumbers();
+            editor.value = saved ? saved : getGutter(0);
+            processLayout(true);
             editor.focus();
-            // Start cursor after the first gutter
+            
             const startPos = getGutter(0).length;
             editor.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
             const clean = editor.value.split('\n')
-                .map(line => line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, ''))
+                .map((line, idx) => {
+                    const gutterLen = getGutter(idx).length;
+                    return line.substring(gutterLen);
+                })
                 .join('\n');
-            navigator.clipboard.writeText(clean).then(() => {
-                alert("Clean text copied to clipboard!");
+            navigator.clipboard.writeText(clean).then(() => { 
+                alert("Clean text copied to clipboard!"); 
             });
         }
 
         function clearEditor() {
             if (confirm("Clear all?")) {
                 localStorage.removeItem('braille_editor_v1');
-                editor.value = getGutter(0);
-                refreshNumbers();
-                const startPos = getGutter(0).length;
-                editor.setSelectionRange(startPos, startPos);
-                editor.focus();
+                location.reload();
             }
         }
     </script>

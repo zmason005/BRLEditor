@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Build v1.0.1</title>
+    <title>Braille Editor - Stabilized iOS Stream</title>
     <style>
         html, body { 
             background-color: #000; 
@@ -15,370 +15,256 @@
         }
         body { 
             color: #fff; 
-            font-family: sans-serif; 
+            font-family: 'SimBraille', monospace; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            padding-top: 10px;
+            padding-top: 20px;
         }
-        #versionHeader {
-            color: #00ffcc;
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border: 1px dashed #00ffcc;
-            padding: 5px 15px;
-            background: #0b1a16;
+        #editor {
+            width: 90vw;
+            height: 70vh;
+            background: #111;
+            color: #fff;
+            border: 2px solid #fff;
+            padding: 15px;
+            font-size: 24px;
+            line-height: 1.6;
+            outline: none;
+            resize: none;
+            white-space: pre;
+            overflow-wrap: normal;
+            overflow-x: hidden;
+            box-sizing: border-box;
         }
-        .controls { margin-bottom: 15px; display: flex; gap: 10px; z-index: 10; }
+        .controls { margin-bottom: 15px; display: flex; gap: 10px; }
         button { 
             padding: 10px 20px; 
             background: #333; 
             color: #fff; 
             border: 1px solid #fff; 
             cursor: pointer; 
+            font-family: sans-serif;
         }
         button:hover { background: #555; }
-
-        #visualDisplay {
-            width: 90vw;
-            height: 65vh;
-            background: #111;
-            color: #fff;
-            border: 2px solid #fff;
-            padding: 15px;
-            font-family: 'SimBraille', monospace;
-            font-size: 24px;
-            line-height: 1.6;
-            white-space: pre;
-            overflow-x: hidden;
-            overflow-y: auto;
-            box-sizing: border-box;
-        }
-        .visual-gutter { color: #00ffcc; }
-
-        #hiddenEngine {
-            position: absolute;
-            left: -10000px;
-            top: 0;
-            width: 1px;
-            height: 1px;
-            opacity: 0.01;
-            overflow: hidden;
-        }
     </style>
 </head>
 <body>
-
-    <!-- Verifiable Dynamic Update Line -->
-    <div id="versionHeader">Active Build: Dual-Canvas Engine v1.0.1 (Stable Input Queue)</div>
 
     <div class="controls">
         <button onclick="copyCleanText()">Copy Content Only</button>
         <button onclick="clearEditor()">Clear All</button>
     </div>
 
-    <div id="visualDisplay"></div>
-    <textarea id="hiddenEngine" spellcheck="false" autocomplete="off" wrap="off"></textarea>
+    <textarea id="editor" spellcheck="false" wrap="off"></textarea>
 
     <script>
-        const hiddenEngine = document.getElementById('hiddenEngine');
-        const visualDisplay = document.getElementById('visualDisplay');
-        
-        const STX = '\u0002';  
-        const ETX = '\u0003';  
-        const ZWSP = '\u200B'; 
-        
+        const editor = document.getElementById('editor');
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         
-        let masterParagraphs = [""]; 
-        let lockLayoutProcessing = false; // Atomic input state anchor
+        let isNavigating = false;
 
         function getGutter(index) {
-            const brailleDigits = (index + 1).toString().split('').map(d => brailleMap[d]).join('');
-            return brailleDigits + ' '; 
+            return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
 
-        function extractPureText(fullText) {
-            let result = "";
-            let i = 0;
-            while (i < fullText.length) {
-                if (fullText.charAt(i) === STX) {
-                    let nextEtx = fullText.indexOf(ETX, i);
-                    if (nextEtx !== -1) {
-                        i = nextEtx + 1;
-                        continue;
+        function lockCursorPastGutter() {
+            if (isNavigating) return;
+            
+            const pos = editor.selectionStart;
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
+            const textBeforeCursor = editor.value.substring(0, pos);
+            const currentLineIdx = textBeforeCursor.split('\n').length - 1;
+            const gutterLength = getGutter(currentLineIdx).length;
+            const relativePos = pos - lineStartPos;
+
+            if (relativePos < gutterLength) {
+                const targetPos = lineStartPos + gutterLength;
+                editor.setSelectionRange(targetPos, targetPos);
+            }
+        }
+
+        function processLayout(isWordBoundary = false, forcedNewlineIndex = null) {
+            const start = editor.selectionStart;
+            const oldValue = editor.value;
+
+            // Track where the cursor sits relatively inside its line block before changes occur
+            const linesBefore = oldValue.substring(0, start).split('\n');
+            const currentLineIdx = linesBefore.length - 1;
+            const currentLineStart = oldValue.lastIndexOf('\n', start - 1) + 1;
+            const currentGutterLen = getGutter(currentLineIdx).length;
+            const relativeCharOffset = Math.max(0, (start - currentLineStart) - currentGutterLen);
+
+            // Step 1: Isolate active content lines & clean out any migrated internal gutters
+            let rawLines = oldValue.split('\n');
+            let lines = rawLines.map((line, idx) => {
+                // Remove initial line gutter matching this index
+                let gutter = getGutter(idx);
+                if (line.startsWith(gutter)) {
+                    line = line.substring(gutter.length);
+                } else {
+                    // Backspace migration fix: clean up any old initial gutters from front
+                    line = line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
+                }
+                // Global gutter cleanup: Erase any embedded line numbers stuck inside due to line merges
+                return line.replace(/[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/g, (match) => {
+                    // Verify if match corresponds to an artifact pattern
+                    return ''; 
+                });
+            });
+
+            // If a manual line break was requested, preserve its slot explicitly in the logic map
+            if (forcedNewlineIndex !== null && forcedNewlineIndex === currentLineIdx) {
+                // Ensure a line separation exists
+            }
+
+            // Step 2: Adaptive Auto-Wrap Flow Logic
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].length > 40) {
+                    let breakAt = lines[i].lastIndexOf(' ', 40);
+                    
+                    if (breakAt === -1 && lines[i].length > 45) {
+                        breakAt = 40; 
+                    }
+
+                    if (breakAt !== -1 && (isWordBoundary || lines[i].length > 45)) {
+                        let keep = lines[i].substring(0, breakAt);
+                        let move = lines[i].substring(breakAt).trimStart();
+                        
+                        lines[i] = keep;
+                        if (lines[i+1] !== undefined) {
+                            lines[i+1] = move + (lines[i+1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i+1].trimStart();
+                        } else {
+                            lines.push(move);
+                        }
                     }
                 }
-                let char = fullText.charAt(i);
-                if (char !== ZWSP) {
-                    result += char;
-                }
-                i++;
-            }
-            return result;
-        }
-
-        function compileLayout(isWordBoundary = false) {
-            if (lockLayoutProcessing) return;
-            lockLayoutProcessing = true; // Engage atomic execution gate
-
-            let compiledLines = [];
-            let visualHTML = "";
-            let rawEngineText = "";
-            
-            const currentSelectionStart = hiddenEngine.selectionStart;
-            const engineLinesBefore = hiddenEngine.value.substring(0, currentSelectionStart).split('\n');
-            const targetCompiledLineIdx = Math.max(0, engineLinesBefore.length - 1);
-            
-            let relativeCursorOffset = 0;
-            const activeLineStartPos = hiddenEngine.value.lastIndexOf('\n', currentSelectionStart - 1) + 1;
-            const activeLineETXIdx = hiddenEngine.value.indexOf(ETX, activeLineStartPos);
-            if (activeLineETXIdx !== -1 && currentSelectionStart > activeLineETXIdx) {
-                relativeCursorOffset = currentSelectionStart - (activeLineETXIdx + 1);
             }
 
-            for (let p = 0; p < masterParagraphs.length; p++) {
-                let segment = masterParagraphs[p];
+            // Step 3: Rebuild with newly calculated line indexes applied cleanly
+            const newValue = lines.map((content, idx) => getGutter(idx) + content).join('\n');
+
+            if (oldValue !== newValue) {
+                editor.value = newValue;
                 
-                if (segment.length === 0) {
-                    compiledLines.push({ content: "", isSoftWrapped: false });
-                    continue;
-                }
-
-                while (segment.length > 0) {
-                    if (segment.length <= 40) {
-                        compiledLines.push({ content: segment, isSoftWrapped: false });
+                // Track relative coordinate to exact structural lines match
+                const targetLines = newValue.split('\n');
+                let targetAbsolutePos = 0;
+                
+                for (let i = 0; i < targetLines.length; i++) {
+                    if (i === currentLineIdx) {
+                        const targetGutterLen = getGutter(i).length;
+                        const safeOffset = Math.min(relativeCharOffset, targetLines[i].length - targetGutterLen);
+                        targetAbsolutePos += targetGutterLen + safeOffset;
                         break;
                     } else {
-                        let breakAt = segment.lastIndexOf(' ', 40);
-                        if (breakAt === -1 && segment.length > 45) {
-                            breakAt = 40;
-                        }
-
-                        if (breakAt !== -1 && (isWordBoundary || segment.length > 45)) {
-                            let keep = segment.substring(0, breakAt);
-                            let move = segment.substring(breakAt).trimStart();
-                            compiledLines.push({ content: keep, isSoftWrapped: true });
-                            segment = move;
-                        } else {
-                            compiledLines.push({ content: segment, isSoftWrapped: false });
-                            break;
-                        }
+                        targetAbsolutePos += targetLines[i].length + 1;
                     }
                 }
-            }
-
-            let targetAbsoluteEngineCursor = -1;
-
-            for (let i = 0; i < compiledLines.length; i++) {
-                let item = compiledLines[i];
-                let gutterText = STX + getGutter(i) + ETX;
-                let lineStr = gutterText + item.content + (item.isSoftWrapped ? ZWSP : "");
-                
-                rawEngineText += lineStr;
-                visualHTML += `<span class="visual-gutter">${gutterText}</span>${item.content}${item.isSoftWrapped ? ZWSP : ""}`;
-                
-                if (i === targetCompiledLineIdx) {
-                    let safeOffset = Math.min(relativeCursorOffset, item.content.length);
-                    targetAbsoluteEngineCursor = (rawEngineText.length - lineStr.length) + gutterText.length + safeOffset;
-                }
-
-                if (i < compiledLines.length - 1) {
-                    rawEngineText += "\n";
-                    visualHTML += "\n";
-                }
-            }
-
-            visualDisplay.innerHTML = visualHTML;
-            
-            if (hiddenEngine.value !== rawEngineText) {
-                hiddenEngine.value = rawEngineText;
-                if (targetAbsoluteEngineCursor !== -1) {
-                    hiddenEngine.setSelectionRange(targetAbsoluteEngineCursor, targetAbsoluteEngineCursor);
-                }
+                editor.setSelectionRange(targetAbsolutePos, targetAbsolutePos);
+            } else {
+                editor.setSelectionRange(start, start);
             }
             scaleFont();
-            
-            lockLayoutProcessing = false; // Release execution gate
-        }
-
-        function mapEngineToParagraphs() {
-            const pureDoc = extractPureText(hiddenEngine.value);
-            masterParagraphs = pureDoc.split('\n');
         }
 
         function scaleFont() {
-            const totalCells = 40 + hiddenEngine.value.split('\n').length.toString().length + 3; 
-            const fontSize = (visualDisplay.clientWidth / totalCells) * 0.92;
-            visualDisplay.style.fontSize = fontSize + 'px';
+            const lines = editor.value.split('\n');
+            const maxGutterSize = lines.length.toString().length;
+            const totalCells = 40 + maxGutterSize;
+            const fontSize = (editor.clientWidth / totalCells) * 0.92;
+            editor.style.fontSize = fontSize + 'px';
         }
 
-        function runBoundaryEnforcement() {
-            const pos = hiddenEngine.selectionStart;
-            const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
-            const lineEndPos = hiddenEngine.value.indexOf('\n', pos);
-            const lineStr = hiddenEngine.value.substring(lineStartPos, lineEndPos === -1 ? hiddenEngine.value.length : lineEndPos);
-            
-            const etxIdx = lineStr.indexOf(ETX);
-            if (etxIdx !== -1) {
-                const absoluteETXPos = lineStartPos + etxIdx;
-                if (pos <= absoluteETXPos) {
-                    const safeAnchor = absoluteETXPos + 1;
-                    hiddenEngine.setSelectionRange(safeAnchor, safeAnchor);
-                }
-            }
-        }
-
-        hiddenEngine.addEventListener('input', (e) => {
-            if (hiddenEngine.value.includes('Ê')) {
-                const pos = hiddenEngine.selectionStart;
-                hiddenEngine.value = hiddenEngine.value.replace(/Ê/g, '\n');
-                hiddenEngine.setSelectionRange(pos, pos);
-            }
-
-            mapEngineToParagraphs();
-            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
-            compileLayout(isWordBoundary);
-            
-            localStorage.setItem('braille_dual_canvas_v1.0.1', hiddenEngine.value);
-            runBoundaryEnforcement();
-        });
-
-        hiddenEngine.addEventListener('keydown', (e) => {
-            const pos = hiddenEngine.selectionStart;
-            const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
-            const lineEndPos = hiddenEngine.value.indexOf('\n', pos);
-            const actualLineEnd = lineEndPos === -1 ? hiddenEngine.value.length : lineEndPos;
-            const lineStr = hiddenEngine.value.substring(lineStartPos, actualLineEnd);
-            const etxIdx = lineStr.indexOf(ETX);
-            const absoluteETXPos = lineStartPos + etxIdx;
-
-            if (e.key === 'Enter') {
-                e.preventDefault(); 
-                
-                const before = hiddenEngine.value.substring(0, pos);
-                const after = hiddenEngine.value.substring(pos);
-                const dummyGutter = "\n" + STX + getGutter(0) + ETX;
-                
-                hiddenEngine.value = before + dummyGutter + after;
-                const nextTargetPos = pos + dummyGutter.length;
-                hiddenEngine.setSelectionRange(nextTargetPos, nextTargetPos);
-                
-                mapEngineToParagraphs();
-                compileLayout(true);
+        editor.addEventListener('keydown', (e) => {
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                isNavigating = true;
                 return;
-            }
+            } 
+            isNavigating = false;
+
+            const pos = editor.selectionStart;
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
+            const relativePos = pos - lineStartPos;
+            const currentLineIdx = editor.value.substring(0, pos).split('\n').length - 1;
+            const gutterLen = getGutter(currentLineIdx).length;
 
             if (e.key === 'Backspace') {
-                if (pos === absoluteETXPos + 1) {
-                    e.preventDefault();
-                    if (lineStartPos === 0) return; 
-
-                    const targetLineEnd = lineStartPos - 1;
-                    const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                    const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
-                    const targetETXIdx = targetLineStr.indexOf(ETX);
-                    
-                    let cleanTargetContent = targetETXIdx !== -1 ? targetLineStr.substring(targetETXIdx + 1) : targetLineStr;
-                    if (cleanTargetContent.endsWith(ZWSP)) cleanTargetContent = cleanTargetContent.slice(0, -1);
-                    
-                    const currentContent = lineStr.substring(etxIdx + 1);
-                    const targetGutter = targetETXIdx !== -1 ? targetLineStr.substring(0, targetETXIdx + 1) : (STX + getGutter(0) + ETX);
-                    
-                    const mergedLine = targetGutter + cleanTargetContent + currentContent;
-                    const beforeBlock = hiddenEngine.value.substring(0, targetLineStart);
-                    const afterBlock = hiddenEngine.value.substring(actualLineEnd);
-                    
-                    hiddenEngine.value = beforeBlock + mergedLine + afterBlock;
-                    const landPos = targetLineStart + targetGutter.length + cleanTargetContent.length;
-                    hiddenEngine.setSelectionRange(landPos, landPos);
-                    
-                    mapEngineToParagraphs();
-                    compileLayout(false);
-                }
-                return;
-            }
-
-            if (e.key === 'ArrowUp') {
-                if (lineStartPos === 0) return;
-                e.preventDefault();
-                
-                const targetLineEnd = lineStartPos - 1;
-                const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
-                
-                const targetPos = targetLineStr.endsWith(ZWSP) ? (targetLineStart + targetLineStr.length - 1) : targetLineEnd;
-                hiddenEngine.setSelectionRange(targetPos, targetPos);
-                runBoundaryEnforcement();
-                return;
-            }
-
-            if (e.key === 'ArrowRight') {
-                if (pos === actualLineEnd || (hiddenEngine.value.charAt(pos) === '\n')) {
-                    e.preventDefault();
-                    const nextLineStart = actualLineEnd + 1;
-                    const nextRightBracket = hiddenEngine.value.indexOf(ETX, nextLineStart);
-                    if (nextRightBracket !== -1) {
-                        const targetPos = nextRightBracket + 1;
-                        hiddenEngine.setSelectionRange(targetPos, targetPos);
+                if (relativePos === gutterLen) {
+                    if (currentLineIdx === 0) {
+                        e.preventDefault();
+                    } else {
+                        // Allow natural merging, the input/layout pass clean loop deletes the structural remnant
+                        isNavigating = false; 
                     }
-                }
-                return;
-            }
-
-            if (e.key === 'ArrowLeft') {
-                if (pos === absoluteETXPos + 1) {
+                } else if (relativePos < gutterLen) {
                     e.preventDefault();
-                    if (lineStartPos === 0) return;
-                    
-                    const targetLineEnd = lineStartPos - 1;
-                    const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                    const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
-                    
-                    const targetPos = targetLineStr.endsWith(ZWSP) ? (targetLineStart + targetLineStr.length - 1) : targetLineEnd;
-                    hiddenEngine.setSelectionRange(targetPos, targetPos);
                 }
-                return;
             }
         });
 
-        visualDisplay.addEventListener('click', () => { hiddenEngine.focus(); });
-        document.addEventListener('click', () => { hiddenEngine.focus(); });
+        editor.addEventListener('input', (e) => {
+            let forcedNewlineIdx = null;
+            
+            if (editor.value.includes('Ê')) {
+                const pos = editor.selectionStart;
+                forcedNewlineIdx = editor.value.substring(0, pos).split('\n').length - 1;
+                editor.value = editor.value.replace(/Ê/g, '\n');
+                editor.setSelectionRange(pos, pos);
+            }
+
+            if (e.inputType === 'insertLineBreak') {
+                const pos = editor.selectionStart;
+                forcedNewlineIdx = editor.value.substring(0, pos).split('\n').length - 2; 
+            }
+
+            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
+            
+            processLayout(isWordBoundary, forcedNewlineIdx);
+            localStorage.setItem('braille_editor_v1', editor.value);
+            lockCursorPastGutter();
+        });
+
+        editor.addEventListener('click', () => { 
+            isNavigating = false;
+            lockCursorPastGutter(); 
+        });
         
-        hiddenEngine.addEventListener('keyup', (e) => {
-            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
-                runBoundaryEnforcement();
+        editor.addEventListener('keyup', (e) => {
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) {
+                lockCursorPastGutter();
             }
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_dual_canvas_v1.0.1');
-            if (saved) {
-                hiddenEngine.value = saved;
-            } else {
-                hiddenEngine.value = STX + getGutter(0) + ETX;
-            }
-            mapEngineToParagraphs();
-            compileLayout(true);
+            const saved = localStorage.getItem('braille_editor_v1');
+            editor.value = saved ? saved : getGutter(0);
+            processLayout(true);
+            editor.focus();
             
-            hiddenEngine.focus();
-            const startPos = hiddenEngine.value.indexOf(ETX) + 1;
-            hiddenEngine.setSelectionRange(startPos, startPos);
+            const startPos = getGutter(0).length;
+            editor.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
-            const clean = extractPureText(hiddenEngine.value);
+            const clean = editor.value.split('\n')
+                .map((line, idx) => {
+                    const gutterLen = getGutter(idx).length;
+                    // Safely get pure text after layout check
+                    if (line.startsWith(getGutter(idx))) {
+                        return line.substring(gutterLen);
+                    }
+                    return line.replace(/^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/, '');
+                })
+                .join('\n');
             navigator.clipboard.writeText(clean).then(() => { 
                 alert("Clean text copied to clipboard!"); 
             });
         }
 
         function clearEditor() {
-            if (confirm("Clear all contents?")) {
-                localStorage.removeItem('braille_dual_canvas_v1.0.1');
+            if (confirm("Clear all?")) {
+                localStorage.removeItem('braille_editor_v1');
                 location.reload();
             }
         }

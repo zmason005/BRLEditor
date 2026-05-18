@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - VoiceOver Partition Stream</title>
+    <title>Braille Editor - Production Dual-Canvas</title>
     <style>
         html, body { 
             background-color: #000; 
@@ -15,38 +15,51 @@
         }
         body { 
             color: #fff; 
-            font-family: 'SimBraille', monospace; 
+            font-family: sans-serif; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
             padding-top: 20px;
         }
-        #editor {
-            width: 90vw;
-            height: 70vh;
-            background: #111;
-            color: #fff;
-            border: 2px solid #fff;
-            padding: 15px;
-            font-size: 24px;
-            line-height: 1.6;
-            outline: none;
-            resize: none;
-            white-space: pre;
-            overflow-wrap: normal;
-            overflow-x: hidden;
-            box-sizing: border-box;
-        }
-        .controls { margin-bottom: 15px; display: flex; gap: 10px; }
+        .controls { margin-bottom: 15px; display: flex; gap: 10px; z-index: 10; }
         button { 
             padding: 10px 20px; 
             background: #333; 
             color: #fff; 
             border: 1px solid #fff; 
             cursor: pointer; 
-            font-family: sans-serif;
         }
         button:hover { background: #555; }
+
+        /* The Visual Canvas Matrix (For sighted review/alignment) */
+        #visualDisplay {
+            width: 90vw;
+            height: 70vh;
+            background: #111;
+            color: #fff;
+            border: 2px solid #fff;
+            padding: 15px;
+            font-family: 'SimBraille', monospace;
+            font-size: 24px;
+            line-height: 1.6;
+            white-space: pre;
+            overflow-x: hidden;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        .visual-gutter { color: #00ffcc; }
+
+        /* The Accessibility Engine Canvas */
+        /* Offscreen to sighted eyes, but completely focused and active for VoiceOver/Braille */
+        #hiddenEngine {
+            position: absolute;
+            left: -10000px;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body>
@@ -56,10 +69,15 @@
         <button onclick="clearEditor()">Clear All</button>
     </div>
 
-    <textarea id="editor" spellcheck="false" wrap="off"></textarea>
+    <!-- Sighted Monitor Layer -->
+    <div id="visualDisplay"></div>
+    
+    <!-- True Operational Input Engine (VoiceOver & Braille Display Anchor) -->
+    <textarea id="hiddenEngine" spellcheck="false" autocomplete="off" wrap="off"></textarea>
 
     <script>
-        const editor = document.getElementById('editor');
+        const hiddenEngine = document.getElementById('hiddenEngine');
+        const visualDisplay = document.getElementById('visualDisplay');
         
         // Symmetrical Metadata Control Envelopes
         const STX = '\u0002';  // Left Anchor
@@ -67,32 +85,17 @@
         const ZWSP = '\u200B'; // Soft Wrap Indicator
         
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
-        let isNavigating = false;
+        
+        // Track raw paragraphs completely separated from the display metrics
+        let masterParagraphs = [""]; 
+        let activeLineIndex = 0; // The compiled line index where the cursor currently rests
 
         function getGutter(index) {
             const brailleDigits = (index + 1).toString().split('').map(d => brailleMap[d]).join('');
-            return brailleDigits + ' '; // Space isolates Braille data from text for VoiceOver
+            return brailleDigits + ' '; // Space partitions Braille data from text for phonetic grouping
         }
 
-        // Rigid Focus Guard - Prevents cursor from ever selecting or dropping behind metadata
-        function realignCursor() {
-            if (isNavigating) return;
-            
-            const pos = editor.selectionStart;
-            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const lineEndPos = editor.value.indexOf('\n', pos);
-            const currentLineStr = editor.value.substring(lineStartPos, lineEndPos === -1 ? editor.value.length : lineEndPos);
-            
-            const rightBracketIdx = currentLineStr.indexOf(ETX);
-            if (rightBracketIdx !== -1) {
-                const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
-                if (pos <= absoluteRightBracketPos) {
-                    const targetPos = absoluteRightBracketPos + 1;
-                    editor.setSelectionRange(targetPos, targetPos);
-                }
-            }
-        }
-
+        // Extracts pure data strings directly from compiled metadata grids
         function extractPureText(fullText) {
             let result = "";
             let i = 0;
@@ -100,12 +103,12 @@
                 if (fullText.charAt(i) === STX) {
                     let nextEtx = fullText.indexOf(ETX, i);
                     if (nextEtx !== -1) {
-                        i = nextEtx + 1; // Leap entirely over the structural metadata block
+                        i = nextEtx + 1;
                         continue;
                     }
                 }
                 let char = fullText.charAt(i);
-                if (char !== ZWSP) { // Strip soft wraps for compilation
+                if (char !== ZWSP) {
                     result += char;
                 }
                 i++;
@@ -113,32 +116,36 @@
             return result;
         }
 
-        function processLayout(isWordBoundary = false) {
-            const start = editor.selectionStart;
-            const oldValue = editor.value;
+        // Compiles data structures down into the active tracking engine
+        function compileLayout(isWordBoundary = false) {
+            let compiledLines = [];
+            let visualHTML = "";
+            let rawEngineText = "";
+            
+            // Track the cursor translation mapping properties
+            const currentSelectionStart = hiddenEngine.selectionStart;
+            const engineLinesBefore = hiddenEngine.value.substring(0, currentSelectionStart).split('\n');
+            const targetCompiledLineIdx = Math.max(0, engineLinesBefore.length - 1);
+            
+            let relativeCursorOffset = 0;
+            const activeLineStartPos = hiddenEngine.value.lastIndexOf('\n', currentSelectionStart - 1) + 1;
+            const activeLineETXIdx = hiddenEngine.value.indexOf(ETX, activeLineStartPos);
+            if (activeLineETXIdx !== -1 && currentSelectionStart > activeLineETXIdx) {
+                relativeCursorOffset = currentSelectionStart - (activeLineETXIdx + 1);
+            }
 
-            // Determine tracking coordinates of cursor relative to pure content boundaries
-            const pureTextBeforeCursor = extractPureText(oldValue.substring(0, start));
-            const paragraphsBefore = pureTextBeforeCursor.split('\n');
-            const targetParagraphIdx = paragraphsBefore.length - 1;
-            const targetCharOffset = paragraphsBefore[targetParagraphIdx].length;
-
-            const masterPureContent = extractPureText(oldValue);
-            const hardParagraphs = masterPureContent.split('\n');
-            let structuralLines = [];
-
-            // Execute Word Wrap Compilation based exclusively on raw text lengths
-            for (let p = 0; p < hardParagraphs.length; p++) {
-                let segment = hardParagraphs[p];
+            // Run the 40-cell dynamic text packaging loop across all paragraphs
+            for (let p = 0; p < masterParagraphs.length; p++) {
+                let segment = masterParagraphs[p];
+                
                 if (segment.length === 0) {
-                    structuralLines.push({ content: "", isSoftWrapped: false, srcParagraph: p, srcOffset: 0 });
+                    compiledLines.push({ content: "", isSoftWrapped: false });
                     continue;
                 }
 
-                let currentOffset = 0;
                 while (segment.length > 0) {
                     if (segment.length <= 40) {
-                        structuralLines.push({ content: segment, isSoftWrapped: false, srcParagraph: p, srcOffset: currentOffset });
+                        compiledLines.push({ content: segment, isSoftWrapped: false });
                         break;
                     } else {
                         let breakAt = segment.lastIndexOf(' ', 40);
@@ -149,214 +156,223 @@
                         if (breakAt !== -1 && (isWordBoundary || segment.length > 45)) {
                             let keep = segment.substring(0, breakAt);
                             let move = segment.substring(breakAt).trimStart();
-                            structuralLines.push({ content: keep, isSoftWrapped: true, srcParagraph: p, srcOffset: currentOffset });
-                            currentOffset += keep.length + (segment.length - keep.length - move.length);
+                            compiledLines.push({ content: keep, isSoftWrapped: true });
                             segment = move;
                         } else {
-                            structuralLines.push({ content: segment, isSoftWrapped: false, srcParagraph: p, srcOffset: currentOffset });
+                            compiledLines.push({ content: segment, isSoftWrapped: false });
                             break;
                         }
                     }
                 }
             }
 
-            // Reconstruct unified string mapping fresh layout matrices
-            let newValue = "";
-            let targetAbsolutePos = -1;
+            // Build structural stream layers simultaneously
+            let targetAbsoluteEngineCursor = -1;
 
-            for (let i = 0; i < structuralLines.length; i++) {
-                let item = structuralLines[i];
-                let gutterStr = STX + getGutter(i) + ETX;
-                let lineOutput = gutterStr + item.content + (item.isSoftWrapped ? ZWSP : "");
+            for (let i = 0; i < compiledLines.length; i++) {
+                let item = compiledLines[i];
+                let gutterText = STX + getGutter(i) + ETX;
+                let lineStr = gutterText + item.content + (item.isSoftWrapped ? ZWSP : "");
                 
-                if (targetAbsolutePos === -1 && item.srcParagraph === targetParagraphIdx) {
-                    let nextItem = structuralLines[i + 1];
-                    let nextOffset = nextItem ? nextItem.srcOffset : Infinity;
-                    
-                    if (targetCharOffset >= item.srcOffset && (targetCharOffset < nextOffset || item.srcParagraph !== (nextItem ? nextItem.srcParagraph : -1))) {
-                        let localOffset = targetCharOffset - item.srcOffset;
-                        let safeOffset = Math.min(localOffset, item.content.length);
-                        targetAbsolutePos = newValue.length + gutterStr.length + safeOffset;
-                    }
+                rawEngineText += lineStr;
+                visualHTML += `<span class="visual-gutter">${gutterText}</span>${item.content}${item.isSoftWrapped ? ZWSP : ""}`;
+                
+                if (i === targetCompiledLineIdx) {
+                    let safeOffset = Math.min(relativeCursorOffset, item.content.length);
+                    targetAbsoluteEngineCursor = (rawEngineText.length - lineStr.length) + gutterText.length + safeOffset;
                 }
-                
-                newValue += lineOutput;
-                if (i < structuralLines.length - 1) {
-                    newValue += "\n";
+
+                if (i < compiledLines.length - 1) {
+                    rawEngineText += "\n";
+                    visualHTML += "\n";
                 }
             }
 
-            if (targetAbsolutePos === -1) targetAbsolutePos = newValue.length;
-
-            if (oldValue !== newValue) {
-                editor.value = newValue;
-                editor.setSelectionRange(targetAbsolutePos, targetAbsolutePos);
-            } else {
-                editor.setSelectionRange(start, start);
+            // Push formatting to both layout canvases safely
+            visualDisplay.innerHTML = visualHTML;
+            
+            if (hiddenEngine.value !== rawEngineText) {
+                hiddenEngine.value = rawEngineText;
+                if (targetAbsoluteEngineCursor !== -1) {
+                    hiddenEngine.setSelectionRange(targetAbsoluteEngineCursor, targetAbsoluteEngineCursor);
+                }
             }
             scaleFont();
         }
 
-        function scaleFont() {
-            const lines = editor.value.split('\n');
-            const maxGutterSize = lines.length.toString().length;
-            const totalCells = 40 + maxGutterSize + 3; // Accounts for Braille digits + space + 2 wrappers
-            const fontSize = (editor.clientWidth / totalCells) * 0.92;
-            editor.style.fontSize = fontSize + 'px';
+        // Maps the text state backward from input string directly into paragraph arrays
+        function mapEngineToParagraphs() {
+            const pureDoc = extractPureText(hiddenEngine.value);
+            masterParagraphs = pureDoc.split('\n');
         }
 
-        editor.addEventListener('keydown', (e) => {
-            const pos = editor.selectionStart;
-            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
-            const lineEndPos = editor.value.indexOf('\n', pos);
-            const actualLineEnd = lineEndPos === -1 ? editor.value.length : lineEndPos;
-            const currentLineStr = editor.value.substring(lineStartPos, actualLineEnd);
-            const rightBracketIdx = currentLineStr.indexOf(ETX);
-            const absoluteRightBracketPos = lineStartPos + rightBracketIdx;
+        function scaleFont() {
+            const totalCells = 40 + hiddenEngine.value.split('\n').length.toString().length + 3; 
+            const fontSize = (visualDisplay.clientWidth / totalCells) * 0.92;
+            visualDisplay.style.fontSize = fontSize + 'px';
+        }
+
+        // Rigid Focus Guard - Preserves right-side cell entry and blocks structural drops
+        function runBoundaryEnforcement() {
+            const pos = hiddenEngine.selectionStart;
+            const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
+            const lineEndPos = hiddenEngine.value.indexOf('\n', pos);
+            const lineStr = hiddenEngine.value.substring(lineStartPos, lineEndPos === -1 ? hiddenEngine.value.length : lineEndPos);
             
-            // 1. Strict Enter Key Intercept Gate
+            const etxIdx = lineStr.indexOf(ETX);
+            if (etxIdx !== -1) {
+                const absoluteETXPos = lineStartPos + etxIdx;
+                if (pos <= absoluteETXPos) {
+                    const safeAnchor = absoluteETXPos + 1;
+                    hiddenEngine.setSelectionRange(safeAnchor, safeAnchor);
+                }
+            }
+        }
+
+        // Native Typing Buffer Pass: Allowed to run freely without immediate variable rewrites
+        hiddenEngine.addEventListener('input', (e) => {
+            if (hiddenEngine.value.includes('Ê')) {
+                const pos = hiddenEngine.selectionStart;
+                hiddenEngine.value = hiddenEngine.value.replace(/Ê/g, '\n');
+                hiddenEngine.setSelectionRange(pos, pos);
+            }
+
+            mapEngineToParagraphs();
+            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
+            compileLayout(isWordBoundary);
+            
+            localStorage.setItem('braille_dual_canvas_v1', hiddenEngine.value);
+            runBoundaryEnforcement();
+        });
+
+        // Strict Keydown Macro-Intercepts
+        hiddenEngine.addEventListener('keydown', (e) => {
+            const pos = hiddenEngine.selectionStart;
+            const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
+            const lineEndPos = hiddenEngine.value.indexOf('\n', pos);
+            const actualLineEnd = lineEndPos === -1 ? hiddenEngine.value.length : lineEndPos;
+            const lineStr = hiddenEngine.value.substring(lineStartPos, actualLineEnd);
+            const etxIdx = lineStr.indexOf(ETX);
+            const absoluteETXPos = lineStartPos + etxIdx;
+
             if (e.key === 'Enter') {
-                e.preventDefault(); 
+                e.preventDefault(); // Lock browser layout engine mutations out
                 
-                const textBeforeCursor = editor.value.substring(0, pos);
-                const textAfterCursor = editor.value.substring(pos);
+                const before = hiddenEngine.value.substring(0, pos);
+                const after = hiddenEngine.value.substring(pos);
+                const dummyGutter = "\n" + STX + getGutter(0) + ETX;
                 
-                const tempGutter = "\n" + STX + getGutter(0) + ETX;
-                editor.value = textBeforeCursor + tempGutter + textAfterCursor;
+                hiddenEngine.value = before + dummyGutter + after;
+                const nextTargetPos = pos + dummyGutter.length;
+                hiddenEngine.setSelectionRange(nextTargetPos, nextTargetPos);
                 
-                const newCursorPos = pos + tempGutter.length;
-                editor.setSelectionRange(newCursorPos, newCursorPos);
-                
-                processLayout(true);
+                mapEngineToParagraphs();
+                compileLayout(true);
                 return;
             }
 
-            // 2. Navigation Control Intercepts
+            if (e.key === 'Backspace') {
+                // If cursor hits Cell 1, intercept and merge the paragraphs manually
+                if (pos === absoluteETXPos + 1) {
+                    e.preventDefault();
+                    if (lineStartPos === 0) return; // Top boundary reached
+
+                    const targetLineEnd = lineStartPos - 1;
+                    const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                    const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
+                    const targetETXIdx = targetLineStr.indexOf(ETX);
+                    
+                    let cleanTargetContent = targetETXIdx !== -1 ? targetLineStr.substring(targetETXIdx + 1) : targetLineStr;
+                    if (cleanTargetContent.endsWith(ZWSP)) cleanTargetContent = cleanTargetContent.slice(0, -1);
+                    
+                    const currentContent = lineStr.substring(etxIdx + 1);
+                    const targetGutter = targetETXIdx !== -1 ? targetLineStr.substring(0, targetETXIdx + 1) : (STX + getGutter(0) + ETX);
+                    
+                    const mergedLine = targetGutter + cleanTargetContent + currentContent;
+                    const beforeBlock = hiddenEngine.value.substring(0, targetLineStart);
+                    const afterBlock = hiddenEngine.value.substring(actualLineEnd);
+                    
+                    hiddenEngine.value = beforeBlock + mergedLine + afterBlock;
+                    const landPos = targetLineStart + targetGutter.length + cleanTargetContent.length;
+                    hiddenEngine.setSelectionRange(landPos, landPos);
+                    
+                    mapEngineToParagraphs();
+                    compileLayout(false);
+                }
+                return;
+            }
+
+            // Directional Boundary Controls
             if (e.key === 'ArrowUp') {
                 if (lineStartPos === 0) return;
                 e.preventDefault();
                 
                 const targetLineEnd = lineStartPos - 1;
-                const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                const targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
+                const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
                 
-                if (targetLineStr.endsWith(ZWSP)) {
-                    const targetPos = targetLineStart + targetLineStr.length - 1;
-                    editor.setSelectionRange(targetPos, targetPos);
-                } else {
-                    editor.setSelectionRange(targetLineEnd, targetLineEnd);
-                }
-                return;
-            }
-
-            if (e.key === 'ArrowDown') {
-                isNavigating = false;
+                const targetPos = targetLineStr.endsWith(ZWSP) ? (targetLineStart + targetLineStr.length - 1) : targetLineEnd;
+                hiddenEngine.setSelectionRange(targetPos, targetPos);
+                runBoundaryEnforcement();
                 return;
             }
 
             if (e.key === 'ArrowRight') {
-                if (pos === actualLineEnd || (editor.value.charAt(pos) === '\n')) {
+                if (pos === actualLineEnd || (hiddenEngine.value.charAt(pos) === '\n')) {
                     e.preventDefault();
                     const nextLineStart = actualLineEnd + 1;
-                    const nextRightBracket = editor.value.indexOf(ETX, nextLineStart);
+                    const nextRightBracket = hiddenEngine.value.indexOf(ETX, nextLineStart);
                     if (nextRightBracket !== -1) {
                         const targetPos = nextRightBracket + 1;
-                        editor.setSelectionRange(targetPos, targetPos);
+                        hiddenEngine.setSelectionRange(targetPos, targetPos);
                     }
                 }
                 return;
             }
 
             if (e.key === 'ArrowLeft') {
-                if (pos === absoluteRightBracketPos + 1) {
+                if (pos === absoluteETXPos + 1) {
                     e.preventDefault();
                     if (lineStartPos === 0) return;
                     
                     const targetLineEnd = lineStartPos - 1;
-                    const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                    const targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
+                    const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
+                    const targetLineStr = hiddenEngine.value.substring(targetLineStart, targetLineEnd);
                     
                     const targetPos = targetLineStr.endsWith(ZWSP) ? (targetLineStart + targetLineStr.length - 1) : targetLineEnd;
-                    editor.setSelectionRange(targetPos, targetPos);
+                    hiddenEngine.setSelectionRange(targetPos, targetPos);
                 }
                 return;
             }
-
-            // 3. Strict Backspace Boundary Intercept Gate
-            if (e.key === 'Backspace') {
-                if (pos === absoluteRightBracketPos + 1) {
-                    e.preventDefault(); 
-                    if (lineStartPos === 0) return; 
-
-                    const currentContent = currentLineStr.substring(rightBracketIdx + 1);
-                    const targetLineEnd = lineStartPos - 1;
-                    const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
-                    let targetLineStr = editor.value.substring(targetLineStart, targetLineEnd);
-                    
-                    let targetContentIdx = targetLineStr.indexOf(ETX);
-                    let cleanTargetContent = targetContentIdx !== -1 ? targetLineStr.substring(targetContentIdx + 1) : targetLineStr;
-                    
-                    if (cleanTargetContent.endsWith(ZWSP)) {
-                        cleanTargetContent = cleanTargetContent.slice(0, -1);
-                    }
-
-                    const targetGutter = targetContentIdx !== -1 ? targetLineStr.substring(0, targetContentIdx + 1) : (STX + getGutter(0) + ETX);
-                    const mergedLine = targetGutter + cleanTargetContent + currentContent;
-                    
-                    const beforeBlock = editor.value.substring(0, targetLineStart);
-                    const afterBlock = editor.value.substring(actualLineEnd);
-                    
-                    editor.value = beforeBlock + mergedLine + afterBlock;
-                    
-                    const cursorAnchor = targetLineStart + targetGutter.length + cleanTargetContent.length;
-                    editor.setSelectionRange(cursorAnchor, cursorAnchor);
-                    
-                    processLayout(false);
-                }
-            }
         });
 
-        editor.addEventListener('input', (e) => {
-            if (editor.value.includes('Ê')) {
-                const pos = editor.selectionStart;
-                editor.value = editor.value.replace(/Ê/g, '\n');
-                editor.setSelectionRange(pos, pos);
-            }
-
-            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
-            
-            processLayout(isWordBoundary);
-            localStorage.setItem('braille_editor_v5_partition', editor.value);
-            realignCursor();
-        });
-
-        editor.addEventListener('click', () => { 
-            isNavigating = false;
-            realignCursor(); 
-        });
+        // Ensure user focus maps straight down to the engine during tracking tasks
+        visualDisplay.addEventListener('click', () => { hiddenEngine.focus(); });
+        document.addEventListener('click', () => { hiddenEngine.focus(); });
         
-        editor.addEventListener('keyup', (e) => {
+        hiddenEngine.addEventListener('keyup', (e) => {
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
-                realignCursor();
+                runBoundaryEnforcement();
             }
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_editor_v5_partition');
+            const saved = localStorage.getItem('braille_dual_canvas_v1');
             if (saved) {
-                editor.value = saved;
+                hiddenEngine.value = saved;
             } else {
-                editor.value = STX + getGutter(0) + ETX;
+                hiddenEngine.value = STX + getGutter(0) + ETX;
             }
-            processLayout(true);
-            editor.focus();
+            mapEngineToParagraphs();
+            compileLayout(true);
             
-            const startPos = editor.value.indexOf(ETX) + 1;
-            editor.setSelectionRange(startPos, startPos);
+            hiddenEngine.focus();
+            const startPos = hiddenEngine.value.indexOf(ETX) + 1;
+            hiddenEngine.setSelectionRange(startPos, startPos);
         };
 
         function copyCleanText() {
-            const clean = extractPureText(editor.value);
+            const clean = extractPureText(hiddenEngine.value);
             navigator.clipboard.writeText(clean).then(() => { 
                 alert("Clean text copied to clipboard!"); 
             });
@@ -364,7 +380,7 @@
 
         function clearEditor() {
             if (confirm("Clear all contents?")) {
-                localStorage.removeItem('braille_editor_v5_partition');
+                localStorage.removeItem('braille_dual_canvas_v1');
                 location.reload();
             }
         }

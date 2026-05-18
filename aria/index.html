@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Production Dual-Canvas</title>
+    <title>Braille Editor - Build v1.0.1</title>
     <style>
         html, body { 
             background-color: #000; 
@@ -19,7 +19,18 @@
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            padding-top: 20px;
+            padding-top: 10px;
+        }
+        #versionHeader {
+            color: #00ffcc;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px dashed #00ffcc;
+            padding: 5px 15px;
+            background: #0b1a16;
         }
         .controls { margin-bottom: 15px; display: flex; gap: 10px; z-index: 10; }
         button { 
@@ -31,10 +42,9 @@
         }
         button:hover { background: #555; }
 
-        /* The Visual Canvas Matrix (For sighted review/alignment) */
         #visualDisplay {
             width: 90vw;
-            height: 70vh;
+            height: 65vh;
             background: #111;
             color: #fff;
             border: 2px solid #fff;
@@ -49,8 +59,6 @@
         }
         .visual-gutter { color: #00ffcc; }
 
-        /* The Accessibility Engine Canvas */
-        /* Offscreen to sighted eyes, but completely focused and active for VoiceOver/Braille */
         #hiddenEngine {
             position: absolute;
             left: -10000px;
@@ -64,38 +72,35 @@
 </head>
 <body>
 
+    <!-- Verifiable Dynamic Update Line -->
+    <div id="versionHeader">Active Build: Dual-Canvas Engine v1.0.1 (Stable Input Queue)</div>
+
     <div class="controls">
         <button onclick="copyCleanText()">Copy Content Only</button>
         <button onclick="clearEditor()">Clear All</button>
     </div>
 
-    <!-- Sighted Monitor Layer -->
     <div id="visualDisplay"></div>
-    
-    <!-- True Operational Input Engine (VoiceOver & Braille Display Anchor) -->
     <textarea id="hiddenEngine" spellcheck="false" autocomplete="off" wrap="off"></textarea>
 
     <script>
         const hiddenEngine = document.getElementById('hiddenEngine');
         const visualDisplay = document.getElementById('visualDisplay');
         
-        // Symmetrical Metadata Control Envelopes
-        const STX = '\u0002';  // Left Anchor
-        const ETX = '\u0003';  // Right Anchor
-        const ZWSP = '\u200B'; // Soft Wrap Indicator
+        const STX = '\u0002';  
+        const ETX = '\u0003';  
+        const ZWSP = '\u200B'; 
         
         const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
         
-        // Track raw paragraphs completely separated from the display metrics
         let masterParagraphs = [""]; 
-        let activeLineIndex = 0; // The compiled line index where the cursor currently rests
+        let lockLayoutProcessing = false; // Atomic input state anchor
 
         function getGutter(index) {
             const brailleDigits = (index + 1).toString().split('').map(d => brailleMap[d]).join('');
-            return brailleDigits + ' '; // Space partitions Braille data from text for phonetic grouping
+            return brailleDigits + ' '; 
         }
 
-        // Extracts pure data strings directly from compiled metadata grids
         function extractPureText(fullText) {
             let result = "";
             let i = 0;
@@ -116,13 +121,14 @@
             return result;
         }
 
-        // Compiles data structures down into the active tracking engine
         function compileLayout(isWordBoundary = false) {
+            if (lockLayoutProcessing) return;
+            lockLayoutProcessing = true; // Engage atomic execution gate
+
             let compiledLines = [];
             let visualHTML = "";
             let rawEngineText = "";
             
-            // Track the cursor translation mapping properties
             const currentSelectionStart = hiddenEngine.selectionStart;
             const engineLinesBefore = hiddenEngine.value.substring(0, currentSelectionStart).split('\n');
             const targetCompiledLineIdx = Math.max(0, engineLinesBefore.length - 1);
@@ -134,7 +140,6 @@
                 relativeCursorOffset = currentSelectionStart - (activeLineETXIdx + 1);
             }
 
-            // Run the 40-cell dynamic text packaging loop across all paragraphs
             for (let p = 0; p < masterParagraphs.length; p++) {
                 let segment = masterParagraphs[p];
                 
@@ -166,7 +171,6 @@
                 }
             }
 
-            // Build structural stream layers simultaneously
             let targetAbsoluteEngineCursor = -1;
 
             for (let i = 0; i < compiledLines.length; i++) {
@@ -188,7 +192,6 @@
                 }
             }
 
-            // Push formatting to both layout canvases safely
             visualDisplay.innerHTML = visualHTML;
             
             if (hiddenEngine.value !== rawEngineText) {
@@ -198,9 +201,10 @@
                 }
             }
             scaleFont();
+            
+            lockLayoutProcessing = false; // Release execution gate
         }
 
-        // Maps the text state backward from input string directly into paragraph arrays
         function mapEngineToParagraphs() {
             const pureDoc = extractPureText(hiddenEngine.value);
             masterParagraphs = pureDoc.split('\n');
@@ -212,7 +216,6 @@
             visualDisplay.style.fontSize = fontSize + 'px';
         }
 
-        // Rigid Focus Guard - Preserves right-side cell entry and blocks structural drops
         function runBoundaryEnforcement() {
             const pos = hiddenEngine.selectionStart;
             const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
@@ -229,7 +232,6 @@
             }
         }
 
-        // Native Typing Buffer Pass: Allowed to run freely without immediate variable rewrites
         hiddenEngine.addEventListener('input', (e) => {
             if (hiddenEngine.value.includes('Ê')) {
                 const pos = hiddenEngine.selectionStart;
@@ -241,11 +243,10 @@
             const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
             compileLayout(isWordBoundary);
             
-            localStorage.setItem('braille_dual_canvas_v1', hiddenEngine.value);
+            localStorage.setItem('braille_dual_canvas_v1.0.1', hiddenEngine.value);
             runBoundaryEnforcement();
         });
 
-        // Strict Keydown Macro-Intercepts
         hiddenEngine.addEventListener('keydown', (e) => {
             const pos = hiddenEngine.selectionStart;
             const lineStartPos = hiddenEngine.value.lastIndexOf('\n', pos - 1) + 1;
@@ -256,7 +257,7 @@
             const absoluteETXPos = lineStartPos + etxIdx;
 
             if (e.key === 'Enter') {
-                e.preventDefault(); // Lock browser layout engine mutations out
+                e.preventDefault(); 
                 
                 const before = hiddenEngine.value.substring(0, pos);
                 const after = hiddenEngine.value.substring(pos);
@@ -272,10 +273,9 @@
             }
 
             if (e.key === 'Backspace') {
-                // If cursor hits Cell 1, intercept and merge the paragraphs manually
                 if (pos === absoluteETXPos + 1) {
                     e.preventDefault();
-                    if (lineStartPos === 0) return; // Top boundary reached
+                    if (lineStartPos === 0) return; 
 
                     const targetLineEnd = lineStartPos - 1;
                     const targetLineStart = hiddenEngine.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
@@ -302,7 +302,6 @@
                 return;
             }
 
-            // Directional Boundary Controls
             if (e.key === 'ArrowUp') {
                 if (lineStartPos === 0) return;
                 e.preventDefault();
@@ -346,7 +345,6 @@
             }
         });
 
-        // Ensure user focus maps straight down to the engine during tracking tasks
         visualDisplay.addEventListener('click', () => { hiddenEngine.focus(); });
         document.addEventListener('click', () => { hiddenEngine.focus(); });
         
@@ -357,7 +355,7 @@
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_dual_canvas_v1');
+            const saved = localStorage.getItem('braille_dual_canvas_v1.0.1');
             if (saved) {
                 hiddenEngine.value = saved;
             } else {
@@ -380,7 +378,7 @@
 
         function clearEditor() {
             if (confirm("Clear all contents?")) {
-                localStorage.removeItem('braille_dual_canvas_v1');
+                localStorage.removeItem('braille_dual_canvas_v1.0.1');
                 location.reload();
             }
         }

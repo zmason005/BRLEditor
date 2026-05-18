@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braille Editor - Strict Intercept Stream</title>
+    <title>Braille Editor - VoiceOver Partition Stream</title>
     <style>
         html, body { 
             background-color: #000; 
@@ -70,7 +70,8 @@
         let isNavigating = false;
 
         function getGutter(index) {
-            return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
+            const brailleDigits = (index + 1).toString().split('').map(d => brailleMap[d]).join('');
+            return brailleDigits + ' '; // Space isolates Braille data from text for VoiceOver
         }
 
         // Rigid Focus Guard - Prevents cursor from ever selecting or dropping behind metadata
@@ -199,7 +200,7 @@
         function scaleFont() {
             const lines = editor.value.split('\n');
             const maxGutterSize = lines.length.toString().length;
-            const totalCells = 40 + maxGutterSize + 2; 
+            const totalCells = 40 + maxGutterSize + 3; // Accounts for Braille digits + space + 2 wrappers
             const fontSize = (editor.clientWidth / totalCells) * 0.92;
             editor.style.fontSize = fontSize + 'px';
         }
@@ -215,16 +216,14 @@
             
             // 1. Strict Enter Key Intercept Gate
             if (e.key === 'Enter') {
-                e.preventDefault(); // Stop native browser split completely
+                e.preventDefault(); 
                 
                 const textBeforeCursor = editor.value.substring(0, pos);
                 const textAfterCursor = editor.value.substring(pos);
                 
-                // Construct a temporary placeholder line structure to prevent array corruption
                 const tempGutter = "\n" + STX + getGutter(0) + ETX;
                 editor.value = textBeforeCursor + tempGutter + textAfterCursor;
                 
-                // Place cursor cleanly inside Cell 1 of the new line, facing right
                 const newCursorPos = pos + tempGutter.length;
                 editor.setSelectionRange(newCursorPos, newCursorPos);
                 
@@ -286,10 +285,9 @@
             // 3. Strict Backspace Boundary Intercept Gate
             if (e.key === 'Backspace') {
                 if (pos === absoluteRightBracketPos + 1) {
-                    e.preventDefault(); // Stop native backspace character elimination
+                    e.preventDefault(); 
                     if (lineStartPos === 0) return; 
 
-                    // Manually pull structural details from the paragraph above
                     const currentContent = currentLineStr.substring(rightBracketIdx + 1);
                     const targetLineEnd = lineStartPos - 1;
                     const targetLineStart = editor.value.lastIndexOf('\n', targetLineEnd - 1) + 1;
@@ -310,7 +308,6 @@
                     
                     editor.value = beforeBlock + mergedLine + afterBlock;
                     
-                    // Set cursor exactly at the text junction point, facing left
                     const cursorAnchor = targetLineStart + targetGutter.length + cleanTargetContent.length;
                     editor.setSelectionRange(cursorAnchor, cursorAnchor);
                     
@@ -320,7 +317,6 @@
         });
 
         editor.addEventListener('input', (e) => {
-            // Address legacy iOS character conversions if seen
             if (editor.value.includes('Ê')) {
                 const pos = editor.selectionStart;
                 editor.value = editor.value.replace(/Ê/g, '\n');
@@ -330,7 +326,7 @@
             const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak';
             
             processLayout(isWordBoundary);
-            localStorage.setItem('braille_editor_v4_intercepts', editor.value);
+            localStorage.setItem('braille_editor_v5_partition', editor.value);
             realignCursor();
         });
 
@@ -346,7 +342,7 @@
         });
 
         window.onload = () => {
-            const saved = localStorage.getItem('braille_editor_v4_intercepts');
+            const saved = localStorage.getItem('braille_editor_v5_partition');
             if (saved) {
                 editor.value = saved;
             } else {
@@ -368,7 +364,7 @@
 
         function clearEditor() {
             if (confirm("Clear all contents?")) {
-                localStorage.removeItem('braille_editor_v4_intercepts');
+                localStorage.removeItem('braille_editor_v5_partition');
                 location.reload();
             }
         }

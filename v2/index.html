@@ -2,139 +2,331 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Braille Smart Editor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Braille Editor - Stabilized iOS Stream</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; line-height: 1.5; }
-        #editor { width: 100%; height: 70vh; font-family: monospace; font-size: 1.2rem; padding: 10px; }
-        .controls { margin-bottom: 10px; display: flex; gap: 15px; align-items: center; }
-        #announcer { position: absolute; left: -9999px; }
+        html, body { 
+            background-color: #000; 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+        body { 
+            color: #fff; 
+            font-family: 'SimBraille', monospace; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            padding-top: 20px;
+        }
+        #editor {
+            width: 90vw;
+            height: 70vh;
+            background: #111;
+            color: #fff;
+            border: 2px solid #fff;
+            padding: 15px;
+            font-size: 24px;
+            line-height: 1.6;
+            outline: none;
+            resize: none;
+            white-space: pre;
+            overflow-wrap: normal;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+        .controls { margin-bottom: 15px; display: flex; gap: 10px; }
+        button { 
+            padding: 10px 20px; 
+            background: #333; 
+            color: #fff; 
+            border: 1px solid #fff; 
+            cursor: pointer; 
+            font-family: sans-serif;
+        }
+        button:hover { background: #555; }
     </style>
 </head>
 <body>
 
-<div class="controls">
-    <label>Cells: <input type="number" id="cellLimit" value="40" min="10" max="80" style="width: 50px;"></label>
-    <button onclick="formatBRF()">Compile & Copy BRF</button>
-    <button onclick="clearEditor()" style="color: red;">Clear</button>
-</div>
+    <div class="controls">
+        <button onclick="copyCleanText()">Copy Content Only</button>
+        <button onclick="clearEditor()">Clear All</button>
+    </div>
 
-<textarea id="editor" spellcheck="false" placeholder="Start typing..."></textarea>
-<div id="announcer" aria-live="polite"></div>
+    <textarea id="editor" spellcheck="false" wrap="off"></textarea>
 
-<script>
-    const editor = document.getElementById('editor');
-    const announcer = document.getElementById('announcer');
-    const BUI_ANCHOR = '\u2800'; // Braille Blank
-    const DIGIT_MAP = ['⠴', '⠂', '⠆', '⠒', '⠲', '⠢', '⠖', '⠶', '⠦', '⠔'];
+    <script>
+        const editor = document.getElementById('editor');
+        const brailleMap = { '1':'⠂', '2':'⠆', '3':'⠒', '4':'⠲', '5':'⠢', '6':'⠖', '7':'⠶', '8':'⠦', '9':'⠔', '0':'⠴' };
+        const GUTTER_CHARS = /^[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]+/;
 
-    let state = {
-        rawText: localStorage.getItem('braille_editor_content') || "",
-        cursor: 0,
-        maxCells: parseInt(localStorage.getItem('braille_cell_limit')) || 40
-    };
+        let isNavigating = false;
 
-    // --- Core Logic ---
+        // ---- Gutter helpers ----------------------------------------------
 
-    function toBrailleNum(n) {
-        return n.toString().split('').map(d => DIGIT_MAP[parseInt(d)]).join('');
-    }
-
-    function applyBrailleFormatting(text) {
-        const lines = [];
-        let remaining = text;
-
-        let lineNum = 1;
-        while (remaining.length > 0) {
-            if (remaining.length <= state.maxCells) {
-                lines.push(BUI_ANCHOR + toBrailleNum(lineNum++) + remaining);
-                break;
-            }
-
-            // Smart Wrap: Find last space before limit
-            let splitIdx = remaining.lastIndexOf(' ', state.maxCells);
-            if (splitIdx === -1) splitIdx = state.maxCells; // Force break if no space
-
-            lines.push(BUI_ANCHOR + toBrailleNum(lineNum++) + remaining.substring(0, splitIdx));
-            remaining = remaining.substring(splitIdx).trimStart();
+        function getGutter(index) {
+            return (index + 1).toString().split('').map(d => brailleMap[d]).join('');
         }
-        return lines.join('');
-    }
 
-    function updateView() {
-        const formatted = applyBrailleFormatting(state.rawText);
-        editor.value = formatted;
-        
-        // Map clean cursor to dirty UI position
-        let cleanCount = 0;
-        let dirtyIdx = 0;
-        while (cleanCount < state.cursor && dirtyIdx < formatted.length) {
-            if (formatted[dirtyIdx] !== BUI_ANCHOR && !DIGIT_MAP.includes(formatted[dirtyIdx])) {
-                cleanCount++;
-            }
-            dirtyIdx++;
+        // Strips ONLY a leading run of gutter-digit characters. Never touches
+        // characters elsewhere in the line, so real content can never be
+        // silently deleted by cleanup.
+        function stripLeadingGutter(line) {
+            return line.replace(GUTTER_CHARS, '');
         }
-        editor.setSelectionRange(dirtyIdx, dirtyIdx);
-    }
 
-    // --- Event Listeners ---
+        function getContents(value) {
+            return value.split('\n').map(stripLeadingGutter);
+        }
 
-    editor.addEventListener('beforeinput', (e) => {
-        e.preventDefault();
-        const start = editor.selectionStart;
-        const end = editor.selectionEnd;
-        const data = e.data || "";
+        function rebuildValue(contents) {
+            return contents.map((c, i) => getGutter(i) + c).join('\n');
+        }
 
-        state.rawText = state.rawText.slice(0, start) + data + state.rawText.slice(end);
-        state.cursor = start + data.length;
-        
-        localStorage.setItem('braille_editor_content', state.rawText);
-        updateView();
-    });
+        // ---- Position <-> offset conversion -------------------------------
+        // "line/offsetInContent" = position relative to a line's content
+        //   (gutter already excluded).
+        // "flat offset"  = index into contents.join('\n') (newlines counted
+        //   as real characters - used for delete range math, since deleting
+        //   a newline character is exactly what a line-merge is).
+        // "pure offset"  = sum of content lengths only, newlines NOT counted
+        //   (used to carry the cursor through word-wrap reflow, since wrap
+        //   only moves characters across a boundary without adding/removing
+        //   real content).
 
-    editor.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' || e.key === 'Delete') {
+        function absOffsetFromPos(value, pos) {
+            const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+            const line = value.substring(0, pos).split('\n').length - 1;
+            const gutterLen = getGutter(line).length;
+            const offsetInContent = Math.max(0, pos - lineStart - gutterLen);
+            return { line, offsetInContent };
+        }
+
+        function flatOffset(contents, line, offsetInContent) {
+            let total = 0;
+            for (let i = 0; i < line; i++) total += contents[i].length + 1;
+            return total + offsetInContent;
+        }
+
+        function posFromFlatOffset(contents, flat) {
+            let remaining = flat;
+            for (let i = 0; i < contents.length; i++) {
+                if (remaining <= contents[i].length) return { line: i, offsetInContent: remaining };
+                remaining -= contents[i].length + 1;
+            }
+            const last = contents.length - 1;
+            return { line: last, offsetInContent: contents[last].length };
+        }
+
+        function pureOffset(contents, line, offsetInContent) {
+            let total = 0;
+            for (let i = 0; i < line; i++) total += contents[i].length;
+            return total + offsetInContent;
+        }
+
+        function posFromPureOffset(contents, pure) {
+            let remaining = pure;
+            for (let i = 0; i < contents.length; i++) {
+                if (remaining <= contents[i].length) return { line: i, offsetInContent: remaining };
+                remaining -= contents[i].length;
+            }
+            const last = contents.length - 1;
+            return { line: last, offsetInContent: contents[last].length };
+        }
+
+        function absolutePosInValue(contents, line, offsetInContent) {
+            let pos = 0;
+            for (let i = 0; i < line; i++) pos += getGutter(i).length + contents[i].length + 1;
+            return pos + getGutter(line).length + offsetInContent;
+        }
+
+        // ---- Word-wrap (unchanged heuristic, now operating on pure content) --
+
+        function wrapLines(contents, isWordBoundary) {
+            const lines = contents.slice();
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].length > 40) {
+                    let breakAt = lines[i].lastIndexOf(' ', 40);
+
+                    if (breakAt === -1 && lines[i].length > 45) {
+                        breakAt = 40;
+                    }
+
+                    if (breakAt !== -1 && (isWordBoundary || lines[i].length > 45)) {
+                        let keep = lines[i].substring(0, breakAt);
+                        let move = lines[i].substring(breakAt).trimStart();
+
+                        lines[i] = keep;
+                        if (lines[i + 1] !== undefined) {
+                            lines[i + 1] = move + (lines[i + 1].startsWith(' ') || move.endsWith(' ') ? "" : " ") + lines[i + 1].trimStart();
+                        } else {
+                            lines.push(move);
+                        }
+                    }
+                }
+            }
+            return lines;
+        }
+
+        // ---- Commit helper: wraps content, carries the cursor through the
+        // reflow using pure-offset tracking, writes value + selection + storage.
+
+        function commitContents(contents, pure) {
+            const wrapped = wrapLines(contents, false);
+            const { line, offsetInContent } = posFromPureOffset(wrapped, pure);
+            editor.value = rebuildValue(wrapped);
+            const newPos = absolutePosInValue(wrapped, line, offsetInContent);
+            editor.setSelectionRange(newPos, newPos);
+            localStorage.setItem('braille_editor_v1', editor.value);
+            scaleFont();
+        }
+
+        function scaleFont() {
+            const lines = editor.value.split('\n');
+            const maxGutterSize = lines.length.toString().length;
+            const totalCells = 40 + maxGutterSize;
+            const fontSize = (editor.clientWidth / totalCells) * 0.92;
+            editor.style.fontSize = fontSize + 'px';
+        }
+
+        function lockCursorPastGutter() {
+            if (isNavigating) return;
+
+            const pos = editor.selectionStart;
+            const lineStartPos = editor.value.lastIndexOf('\n', pos - 1) + 1;
+            const currentLineIdx = editor.value.substring(0, pos).split('\n').length - 1;
+            const gutterLength = getGutter(currentLineIdx).length;
+            const relativePos = pos - lineStartPos;
+
+            if (relativePos < gutterLength) {
+                const targetPos = lineStartPos + gutterLength;
+                editor.setSelectionRange(targetPos, targetPos);
+            }
+        }
+
+        // ---- Backspace / Delete: handled manually so a deletion can never
+        // land inside a gutter or leave a gutter fragment embedded in content.
+        // Works for both collapsed cursor and range selections.
+
+        function handleDelete(e, forward) {
             e.preventDefault();
-            const start = editor.selectionStart;
-            const end = editor.selectionEnd;
 
-            if (start !== end) {
-                state.rawText = state.rawText.slice(0, start) + state.rawText.slice(end);
-                state.cursor = start;
-            } else if (e.key === 'Backspace' && start > 0) {
-                state.rawText = state.rawText.slice(0, start - 1) + state.rawText.slice(start);
-                state.cursor = start - 1;
-            } else if (e.key === 'Delete' && start < state.rawText.length) {
-                state.rawText = state.rawText.slice(0, start) + state.rawText.slice(start + 1);
-                state.cursor = start;
+            const value = editor.value;
+            const contents = getContents(value);
+
+            const start = absOffsetFromPos(value, editor.selectionStart);
+            const end = absOffsetFromPos(value, editor.selectionEnd);
+
+            let flatStart = flatOffset(contents, start.line, start.offsetInContent);
+            let flatEnd = flatOffset(contents, end.line, end.offsetInContent);
+            const flatStr = contents.join('\n');
+
+            if (flatStart === flatEnd) {
+                if (forward) {
+                    if (flatEnd >= flatStr.length) return; // nothing after
+                    flatEnd += 1;
+                } else {
+                    if (flatStart === 0) return; // nothing before
+                    flatStart -= 1;
+                }
             }
-            localStorage.setItem('braille_editor_content', state.rawText);
-            updateView();
+
+            const newFlatStr = flatStr.substring(0, flatStart) + flatStr.substring(flatEnd);
+            const newContents = newFlatStr.split('\n');
+
+            // Convert the flat cursor position (which counts newlines) into a
+            // pure content offset (which doesn't), so it survives wrapLines().
+            const { line, offsetInContent } = posFromFlatOffset(newContents, flatStart);
+            const pure = pureOffset(newContents, line, offsetInContent);
+
+            commitContents(newContents, pure);
         }
-    });
 
-    document.getElementById('cellLimit').addEventListener('change', (e) => {
-        state.maxCells = parseInt(e.target.value);
-        localStorage.setItem('braille_cell_limit', state.maxCells);
-        announcer.innerText = `Line width updated to ${state.maxCells}`;
-        updateView();
-    });
+        editor.addEventListener('keydown', (e) => {
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                isNavigating = true;
+                return;
+            }
+            isNavigating = false;
 
-    function formatBRF() {
-        // Strip headers, replace with \n
-        const regex = new RegExp(BUI_ANCHOR + '[' + DIGIT_MAP.join('') + ']+', 'g');
-        const brf = state.rawText.replace(regex, '\n').trim();
-        navigator.clipboard.writeText(brf).then(() => alert("BRF Copied to clipboard!"));
-    }
+            if (e.key === 'Backspace') {
+                handleDelete(e, false);
+            } else if (e.key === 'Delete') {
+                handleDelete(e, true);
+            }
+        });
 
-    function clearEditor() {
-        if (confirm("Clear all text?")) {
-            state.rawText = ""; state.cursor = 0;
-            localStorage.removeItem('braille_editor_content');
-            updateView();
+        editor.addEventListener('input', (e) => {
+            // iOS assistive-tech proxy character for a forced line break.
+            if (editor.value.includes('Ê')) {
+                const pos = editor.selectionStart;
+                editor.value = editor.value.replace(/Ê/g, '\n');
+                editor.setSelectionRange(pos, pos);
+            }
+
+            const value = editor.value;
+            const pos = editor.selectionStart;
+            const contents = getContents(value);
+            const { line, offsetInContent } = absOffsetFromPos(value, pos);
+            const pure = pureOffset(contents, line, offsetInContent);
+
+            const isWordBoundary = e.data === ' ' || e.inputType === 'insertLineBreak' || e.inputType === 'insertFromPaste';
+            const wrapped = wrapLines(contents, isWordBoundary);
+            const target = posFromPureOffset(wrapped, pure);
+
+            editor.value = rebuildValue(wrapped);
+            const newPos = absolutePosInValue(wrapped, target.line, target.offsetInContent);
+            editor.setSelectionRange(newPos, newPos);
+
+            localStorage.setItem('braille_editor_v1', editor.value);
+            scaleFont();
+            lockCursorPastGutter();
+        });
+
+        editor.addEventListener('click', () => {
+            isNavigating = false;
+            lockCursorPastGutter();
+        });
+
+        editor.addEventListener('keyup', (e) => {
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(e.key)) {
+                lockCursorPastGutter();
+            }
+        });
+
+        window.onload = () => {
+            const saved = localStorage.getItem('braille_editor_v1');
+            if (saved) {
+                // Self-heal: re-derive contents from whatever was saved and
+                // rebuild gutters fresh, in case older/corrupted data exists.
+                const contents = getContents(saved);
+                editor.value = rebuildValue(wrapLines(contents, true));
+            } else {
+                editor.value = getGutter(0);
+            }
+            scaleFont();
+            editor.focus();
+
+            const startPos = getGutter(0).length;
+            editor.setSelectionRange(startPos, startPos);
+        };
+
+        function copyCleanText() {
+            const clean = getContents(editor.value).join('\n');
+            navigator.clipboard.writeText(clean).then(() => {
+                alert("Clean text copied to clipboard!");
+            });
         }
-    }
 
-    window.onload = updateView;
-</script>
+        function clearEditor() {
+            if (confirm("Clear all?")) {
+                localStorage.removeItem('braille_editor_v1');
+                location.reload();
+            }
+        }
+    </script>
 </body>
 </html>

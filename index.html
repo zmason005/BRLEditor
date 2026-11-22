@@ -11,6 +11,8 @@ body{overflow-x:hidden;width:100vw}
 .fields{width:90vw;margin:0 auto 8px}
 .fields label{display:block;margin-top:6px}
 html,body{background:#000;color:#fff;color-scheme:dark}
+body{display:block;height:auto;min-height:100vh}
+#editor{height:auto;min-height:70vh;overflow:hidden!important;border-width:1px;resize:none}
 .fields input{width:100%;box-sizing:border-box;font-size:1rem;padding:6px;background:#000;color:#fff;border:2px solid #fff;border-radius:4px}
 #status{color:#fff;padding:0 5px}
 </style>
@@ -103,7 +105,10 @@ function opts(){const n=ppnVal(F.ppn.value);return{head:F.head.value.replace(/\s
 function scaleBrailleFont(){
   const s=getComputedStyle(editor),w=editor.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight);
   if(w>0)editor.style.fontSize=(w/40)*1.66+'px';
+  grow();
 }
+function grow(){editor.style.height='auto';editor.style.height=editor.scrollHeight+'px';}
+if(document.fonts)document.fonts.ready.then(scaleBrailleFont);
 function refreshBrailleFocus(){
   if(document.activeElement===editor){
     const p=editor.selectionStart;editor.setAttribute('aria-live','polite');
@@ -134,7 +139,7 @@ editor.addEventListener('input',function(){
     this.value=this.value.replace(/Ê/g,'\n');
     this.selectionStart=this.selectionEnd=this.value.indexOf('\n',Math.max(0,start-2))+1;
   }
-  save();refreshBrailleFocus();
+  grow();save();refreshBrailleFocus();
 });
 document.addEventListener('selectionchange',()=>{if(document.activeElement===editor)refreshBrailleFocus();});
 async function copyToClipboard(){
@@ -143,7 +148,7 @@ async function copyToClipboard(){
 }
 function clearEditor(){
   if(confirm('Delete saved progress and clear document?')){
-    editor.value='';localStorage.removeItem('braille_editor_v1');editor.focus();refreshBrailleFocus();
+    editor.value='';grow();localStorage.removeItem('braille_editor_v1');editor.focus();refreshBrailleFocus();
   }
 }
 </script>

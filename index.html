@@ -15,6 +15,7 @@ body{display:block;height:auto;min-height:100vh}
 #editor{height:auto;min-height:70vh;overflow:hidden!important;border-width:1px;resize:none}
 .fields input{width:100%;box-sizing:border-box;font-size:1rem;padding:6px;background:#000;color:#fff;border:2px solid #fff;border-radius:4px}
 #status{color:#fff;padding:0 5px}
+#filelist{padding:0 5px}
 </style>
 </head>
 <body>
@@ -23,9 +24,13 @@ body{display:block;height:auto;min-height:100vh}
 <p>Type your draft. Type <strong>-----</strong> on its own line where a print page begins. Press <strong>Format for BRF</strong> to paginate.</p>
 </div>
 <div class="controls">
-<button class="btn-copy" onclick="copyToClipboard()">Copy to Clipboard</button>
-<button class="btn-format" onclick="formatForBRF()">Format for BRF</button>
-<button class="btn-clear" onclick="clearEditor()">Clear Document</button>
+<button class="btn-copy" onclick="copyToClipboard()" aria-label="Copy to Clipboard" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="COPY TO CLIPBO>D">Copy to Clipboard</button>
+<button class="btn-format" onclick="formatForBRF()" aria-label="Format for BRF" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="=MAT = ,,BRF">Format for BRF</button>
+<button class="btn-save" onclick="saveToGitHub()" aria-label="Save to GitHub" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="SAVE">Save to GitHub</button>
+<button class="btn-open" onclick="openFromGitHub()" aria-label="Open from GitHub" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="OP5">Open from GitHub</button>
+<button class="btn-open" onclick="showFiles()" aria-label="Files in GitHub" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel=",GIT,HUB FILES">Files in GitHub</button>
+<button class="btn-clear" onclick="forgetToken()" aria-label="Forget GitHub Token" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="=GET TOK5">Forget GitHub Token</button>
+<button class="btn-clear" onclick="clearEditor()" aria-label="Clear Document" aria-roledescription="“ ”" aria-brailleroledescription="BTN" aria-braillelabel="CLE> DOCU;T">Clear Document</button>
 </div>
 <div class="fields">
 <label for="head">Running head</label>
@@ -34,14 +39,17 @@ body{display:block;height:auto;min-height:100vh}
 <input id="ppp" type="text" spellcheck="false" autocapitalize="off" autocorrect="off">
 <label for="ppn">Starting print page number, # plus A-J, for example #AJ (blank turns print page numbers off)</label>
 <input id="ppn" type="text" spellcheck="false" autocapitalize="off" autocorrect="off">
+<label for="fname">File name for saving and opening</label>
+<input id="fname" type="text" spellcheck="false" autocapitalize="off" autocorrect="off">
 </div>
 <div id="status" role="status" aria-live="polite"></div>
+<div id="filelist"></div>
 <label for="editor" class="sr-only">Braille Editor, 40 cells per line</label>
 <textarea id="editor" spellcheck="false"></textarea>
 <script>
 /*CORE*/
-const AUTO='\u2060',BRK='\u200C',HM='\u200D',BT={brk:1};
-const vis=s=>s.replace(/[\u2060\u200C\u200D]/g,'');
+const AUTO='\u2060',BRK='\u200C',HM='\u200D',PNM='\u2061',BT={brk:1};
+const vis=s=>s.replace(/[\u2060\u200C\u200D\u2061]/g,'');
 const num=n=>'#'+String(n).split('').map(d=>'JABCDEFGHI'[d]).join('');
 function wrapPiece(s,w){
   if(s.length<=w)return null;
@@ -53,6 +61,7 @@ function parse(text,on){
   const flush=()=>{if(cur!==null)items.push(cur);cur=null;prev=0;};
   const add=(t,a)=>{if(cur!==null&&prev)cur+=(prev===1?' ':'')+t;else{flush();cur=t;}prev=a;};
   for(let L of text.split('\n')){
+    if(L.endsWith(PNM))L=L.slice(0,-1).replace(/ *#[A-J]+(?=\u2060*$)/,'');
     if(L.endsWith(HM))continue;
     let a=0;while(L.endsWith(AUTO)){L=L.slice(0,-1);a++;}
     if(vis(L).length===40&&/\s{3}#[A-J]+$/.test(L))L=L.replace(/ +#[A-J]+$/,'');
@@ -90,7 +99,7 @@ function layout(items,o){
     for(let i=0;i<24;i++){
       const x=pg.lines[i];
       if(i<23)l.push(x?x.s+AUTO.repeat(x.a):AUTO);
-      else{const t=x?x.s:'';l.push(t+' '.repeat(Math.max(0,40-pg.bpn.length-vis(t).length))+pg.bpn+AUTO.repeat(x?x.a:1));}
+      else{const t=x?x.s:'';l.push(t+' '.repeat(Math.max(0,40-pg.bpn.length-vis(t).length))+pg.bpn+AUTO.repeat(x?x.a:1)+PNM);}
     }
     return l.join('\n');
   });
@@ -99,7 +108,7 @@ function layout(items,o){
 function brf(text,o){return layout(parse(text,o.on),o);}
 /*END*/
 const editor=document.getElementById('editor'),status=document.getElementById('status');
-const F={head:document.getElementById('head'),ppp:document.getElementById('ppp'),ppn:document.getElementById('ppn')};
+const F={head:document.getElementById('head'),ppp:document.getElementById('ppp'),ppn:document.getElementById('ppn'),fname:document.getElementById('fname')};
 function ppnVal(v){v=v.trim().replace(/^#/,'');if(/^\d+$/.test(v))return parseInt(v,10);if(/^[A-Ja-j]+$/.test(v))return parseInt(v.toUpperCase().split('').map(c=>'JABCDEFGHI'.indexOf(c)).join(''),10)||0;return 0;}
 function opts(){const n=ppnVal(F.ppn.value);return{head:F.head.value.replace(/\s+$/,''),ppp:F.ppp.value.trim(),on:n>0,start:n>0?n:1};}
 function scaleBrailleFont(){
@@ -117,15 +126,33 @@ function refreshBrailleFocus(){
 }
 function save(){
   localStorage.setItem('braille_editor_v1',editor.value);
-  localStorage.setItem('braille_editor_fields',JSON.stringify({head:F.head.value,ppp:F.ppp.value,ppn:F.ppn.value}));
+  localStorage.setItem('braille_editor_fields',JSON.stringify({head:F.head.value,ppp:F.ppp.value,ppn:F.ppn.value,fname:F.fname.value}));
+}
+function saveCaret(){
+  localStorage.setItem('braille_editor_caret',String(editor.selectionStart));
+  localStorage.setItem('braille_editor_scroll',String(window.scrollY));
+}
+function restoreCaret(){
+  const c=Math.min(+localStorage.getItem('braille_editor_caret')||0,editor.value.length);
+  editor.setSelectionRange(c,c);
+  window.scrollTo(0,+localStorage.getItem('braille_editor_scroll')||0);
 }
 window.onload=()=>{
   const t=localStorage.getItem('braille_editor_v1');
-  if(t){editor.value=t;editor.selectionStart=editor.selectionEnd=t.length;}
+  if(t)editor.value=t;
   try{const f=JSON.parse(localStorage.getItem('braille_editor_fields')||'{}');for(const k in F)F[k].value=f[k]||'';}catch(e){}
-  scaleBrailleFont();editor.focus();
+  scaleBrailleFont();
+  restoreCaret();
+  editor.focus();
 };
 addEventListener('resize',scaleBrailleFont);
+addEventListener('scroll',()=>{localStorage.setItem('braille_editor_scroll',String(window.scrollY));},{passive:true});
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')restoreCaret();
+  else saveCaret();
+});
+addEventListener('pageshow',e=>{if(e.persisted)restoreCaret();});
+addEventListener('pagehide',saveCaret);
 for(const k in F)F[k].addEventListener('input',save);
 function formatForBRF(){
   const o=opts(),start=editor.selectionStart,r=brf(editor.value,o);
@@ -141,15 +168,113 @@ editor.addEventListener('input',function(){
   }
   grow();save();refreshBrailleFocus();
 });
-document.addEventListener('selectionchange',()=>{if(document.activeElement===editor)refreshBrailleFocus();});
+document.addEventListener('selectionchange',()=>{if(document.activeElement===editor){refreshBrailleFocus();saveCaret();}});
+const forCopy=t=>vis(t).split('\n').map(l=>l.trim()===''?' ':l).join('\n');
 async function copyToClipboard(){
   if(!editor.value)return;
-  try{await navigator.clipboard.writeText(vis(editor.value));status.textContent='Copied.';}catch(e){}
+  try{await navigator.clipboard.writeText(forCopy(editor.value));status.textContent='Copied.';}catch(e){}
 }
 function clearEditor(){
   if(confirm('Delete saved progress and clear document?')){
     editor.value='';grow();localStorage.removeItem('braille_editor_v1');editor.focus();refreshBrailleFocus();
   }
+}
+
+/* GitHub storage */
+const GH={owner:'zmason005',repo:'client-brf-files'};
+function ghToken(){
+  let t=localStorage.getItem('gh_token');
+  if(!t){t=prompt('Paste your GitHub token for the client files repo:');if(!t)return null;localStorage.setItem('gh_token',t.trim());}
+  return t.trim();
+}
+function forgetToken(){localStorage.removeItem('gh_token');}
+const ghUrl=p=>`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}`;
+async function ghReq(path,opts={}){
+  const t=ghToken();if(!t)throw new Error('No token entered.');
+  return fetch(ghUrl(path),{...opts,headers:{Authorization:'Bearer '+t,Accept:'application/vnd.github+json','Content-Type':'application/json'}});
+}
+function b64(s){const b=new TextEncoder().encode(s);let x='';b.forEach(c=>x+=String.fromCharCode(c));return btoa(x);}
+async function ghSha(path){
+  const r=await ghReq(path);
+  if(r.status===404)return null;
+  if(!r.ok)throw new Error('GitHub error '+r.status+'. Check the token and repo name.');
+  return (await r.json()).sha;
+}
+async function ghPut(path,text,msg){
+  const sha=await ghSha(path);
+  const body={message:msg,content:b64(text)};if(sha)body.sha=sha;
+  const r=await ghReq(path,{method:'PUT',body:JSON.stringify(body)});
+  if(!r.ok)throw new Error('Save failed: GitHub error '+r.status+'.');
+}
+async function ghRead(path){
+  const r=await ghReq(path);
+  if(!r.ok)throw new Error('Open failed: GitHub error '+r.status+'.');
+  const j=await r.json();
+  const bin=atob(j.content.replace(/\n/g,''));
+  return new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0)));
+}
+async function saveToGitHub(){
+  const base=F.fname.value.trim().replace(/[^\w .-]/g,'-');
+  if(!base){status.textContent='Enter a file name first.';return;}
+  try{
+    status.textContent='Saving…';
+    await ghPut(base+'.src.txt',editor.value,'Save '+base);
+    await ghPut(base+'.brf',forCopy(editor.value),'BRF '+base);
+    status.textContent='Saved '+base+' to GitHub.';
+  }catch(e){status.textContent=e.message;}
+}
+async function openFromGitHub(){
+  try{
+    status.textContent='Loading file list…';
+    const r=await ghReq('');
+    if(!r.ok)throw new Error('List failed: GitHub error '+r.status+'.');
+    const names=(await r.json()).filter(i=>i.name.endsWith('.src.txt')).map(i=>i.name.replace(/\.src\.txt$/,''));
+    if(!names.length){status.textContent='No saved files yet.';return;}
+    const pick=prompt('Type a file name to open:\n'+names.join('\n'),names[0]);
+    if(!pick)return;
+    const name=pick.trim();
+    if(!names.includes(name)){status.textContent='No file named '+name+'.';return;}
+    editor.value=await ghRead(name+'.src.txt');
+    F.fname.value=name;save();grow();
+    status.textContent='Opened '+name+'.';
+  }catch(e){status.textContent=e.message;}
+}
+async function showFiles(){
+  const box=document.getElementById('filelist');
+  try{
+    status.textContent='Loading files…';
+    const r=await ghReq('');
+    if(!r.ok)throw new Error('List failed: GitHub error '+r.status+'.');
+    const items=(await r.json()).filter(i=>i.name.endsWith('.brf')).sort((a,b)=>a.name.localeCompare(b.name));
+    box.innerHTML='';
+    if(!items.length){box.textContent='No .brf files yet.';status.textContent='';return;}
+    for(const i of items){
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;gap:8px;align-items:center;margin:6px 0;';
+      const name=document.createElement('span');
+      name.textContent=i.name;name.style.flex='1';
+      const btn=document.createElement('button');
+      btn.textContent='Download';
+      btn.onclick=()=>downloadBrf(i.name);
+      row.append(name,btn);
+      box.append(row);
+    }
+    status.textContent=items.length+' file(s) listed.';
+  }catch(e){status.textContent=e.message;}
+}
+async function downloadBrf(name){
+  try{
+    status.textContent='Downloading '+name+'…';
+    const t=ghToken();if(!t)return;
+    const r=await fetch(ghUrl(name),{headers:{Authorization:'Bearer '+t,Accept:'application/vnd.github.raw'}});
+    if(!r.ok)throw new Error('Download failed: GitHub error '+r.status+'.');
+    const url=URL.createObjectURL(await r.blob());
+    const a=document.createElement('a');
+    a.href=url;a.download=name;
+    document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    status.textContent='Downloaded '+name+'.';
+  }catch(e){status.textContent=e.message;}
 }
 </script>
 </body>
